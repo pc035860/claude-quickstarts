@@ -54,11 +54,17 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
     3. Security hooks - Bash commands validated against an allowlist
        (see security.py for ALLOWED_COMMANDS)
     """
+    # Check for auth: allow either API key or Claude Code auth token
     api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
+    oauth_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if not (api_key or oauth_token):
         raise ValueError(
-            "ANTHROPIC_API_KEY environment variable not set.\n"
-            "Get your API key from: https://console.anthropic.com/"
+            "No Claude auth configured.\n\n"
+            "Set ONE of the following:\n"
+            " # Standard API key from console.anthropic.com\n"
+            " export ANTHROPIC_API_KEY='your-api-key-here'\n\n"
+            " # Or, your Claude Code auth token (from `claude setup-token`)\n"
+            " export CLAUDE_CODE_OAUTH_TOKEN='your-claude-code-auth-token'"
         )
 
     # Create comprehensive security settings
