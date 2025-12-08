@@ -1,3 +1,7 @@
+[project]
+name = "claude-quickstarts"
+version = "0.1.0"
+
 [tool.pyright]
 venvPath = "computer-use-demo"
 venv = ".venv"

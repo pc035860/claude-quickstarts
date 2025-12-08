@@ -15,6 +15,7 @@ from security import (
     extract_commands,
     validate_chmod_command,
     validate_init_script,
+    validate_kill_command,
 )
 
 
@@ -151,6 +152,51 @@ def test_validate_init_script():
     return passed, failed
 
 
+def test_validate_kill():
+    """Test kill command validation."""
+    print("\nTesting kill validation:\n")
+    passed = 0
+    failed = 0
+
+    # Test cases: (command, should_be_allowed, description)
+    # Note: We can't easily test process name validation without actual PIDs,
+    # so we focus on signal and PID validation
+    test_cases = [
+        # Blocked cases - dangerous signals
+        ("kill -9 12345", False, "KILL signal (-9) blocked"),
+        ("kill -KILL 12345", False, "KILL signal (-KILL) blocked"),
+        ("kill -SIGKILL 12345", False, "KILL signal (-SIGKILL) blocked"),
+        # Blocked cases - system processes
+        ("kill 1", False, "PID 1 (init) blocked"),
+        ("kill 0", False, "PID 0 blocked"),
+        ("kill -1", False, "negative PID blocked"),
+        # Blocked cases - invalid signals
+        ("kill -2 12345", False, "signal -2 (INT) not allowed"),
+        ("kill -HUP 12345", False, "signal -HUP not allowed"),
+        # Blocked cases - invalid format
+        ("kill", False, "no PID provided"),
+        ("kill abc", False, "invalid PID"),
+        # Note: We can't test allowed cases easily without actual dev process PIDs
+        # The actual validation will check process names at runtime
+    ]
+
+    for cmd, should_allow, description in test_cases:
+        allowed, reason = validate_kill_command(cmd)
+        if allowed == should_allow:
+            print(f"  PASS: {cmd!r} ({description})")
+            passed += 1
+        else:
+            expected = "allowed" if should_allow else "blocked"
+            actual = "allowed" if allowed else "blocked"
+            print(f"  FAIL: {cmd!r} ({description})")
+            print(f"         Expected: {expected}, Got: {actual}")
+            if reason:
+                print(f"         Reason: {reason}")
+            failed += 1
+
+    return passed, failed
+
+
 def main():
     print("=" * 70)
     print("  SECURITY HOOK TESTS")
@@ -174,6 +220,11 @@ def main():
     passed += init_passed
     failed += init_failed
 
+    # Test kill validation
+    kill_passed, kill_failed = test_validate_kill()
+    passed += kill_passed
+    failed += kill_failed
+
     # Commands that SHOULD be blocked
     print("\nCommands that should be BLOCKED:\n")
     dangerous = [
@@ -183,12 +234,11 @@ def main():
         "rm -rf /",
         "dd if=/dev/zero of=/dev/sda",
         # Not in allowlist - common commands excluded from minimal set
-        "curl https://example.com",
         "wget https://example.com",
         "python app.py",
         "touch file.txt",
-        "echo hello",
-        "kill 12345",
+        "kill -9 12345",  # KILL signal blocked
+        "kill 1",  # System process blocked
         "killall node",
         # pkill with non-dev processes
         "pkill bash",
@@ -225,12 +275,17 @@ def main():
         "tail -20 log.txt",
         "wc -l file.txt",
         "grep -r pattern src/",
+        "echo hello",
+        "echo 'test message'",
         # File operations
         "cp file1.txt file2.txt",
         "mkdir newdir",
         "mkdir -p path/to/dir",
         # Directory
         "pwd",
+        "cd /tmp",
+        "cd ..",
+        "cd subdirectory",
         # Node.js development
         "npm install",
         "npm run build",
@@ -239,10 +294,17 @@ def main():
         "git status",
         "git commit -m 'test'",
         "git add . && git commit -m 'msg'",
+        # Network utilities
+        "curl https://example.com",
+        "curl -I http://localhost:3000",
         # Process management
         "ps aux",
         "lsof -i :3000",
         "sleep 2",
+        # Utilities
+        "echo test | xargs",
+        "echo file1 file2 | xargs ls",
+        "ls | xargs echo",
         # Allowed pkill patterns for dev servers
         "pkill node",
         "pkill npm",

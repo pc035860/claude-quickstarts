@@ -8,6 +8,7 @@ Uses an allowlist approach - only explicitly permitted commands can run.
 
 import os
 import shlex
+import subprocess
 
 
 # Allowed commands for development tasks
@@ -20,15 +21,25 @@ ALLOWED_COMMANDS = {
     "tail",
     "wc",
     "grep",
+    "echo",  # For outputting text
     # File operations (agent uses SDK tools for most file ops, but cp/mkdir needed occasionally)
     "cp",
     "mkdir",
     "chmod",  # For making scripts executable; validated separately
+    "xargs",  # For building and executing command lines from standard input
     # Directory
     "pwd",
+    "cd",  # For changing directories
     # Node.js development
     "npm",
     "node",
+    "npx",  # For running npm packages directly
+    "pnpm",  # Package manager used in pos-poc project
+    # Supabase & Deno
+    "supabase",  # Supabase CLI for local development
+    "deno",  # Deno runtime for Edge Functions and testing
+    # Network utilities
+    "curl",  # For checking service status
     # Version control
     "git",
     # Process management
@@ -36,12 +47,13 @@ ALLOWED_COMMANDS = {
     "lsof",
     "sleep",
     "pkill",  # For killing dev servers; validated separately
+    "kill",  # For killing dev servers by PID; validated separately
     # Script execution
     "init.sh",  # Init scripts; validated separately
 }
 
 # Commands that need additional validation even when in the allowlist
-COMMANDS_NEEDING_EXTRA_VALIDATION = {"pkill", "chmod", "init.sh"}
+COMMANDS_NEEDING_EXTRA_VALIDATION = {"pkill", "kill", "chmod", "init.sh"}
 
 
 def split_command_segments(command_string: str) -> list[str]:
@@ -206,6 +218,112 @@ def validate_pkill_command(command_string: str) -> tuple[bool, str]:
     return False, f"pkill only allowed for dev processes: {allowed_process_names}"
 
 
+def validate_kill_command(command_string: str) -> tuple[bool, str]:
+    """
+    Validate kill commands - only allow killing dev-related processes by PID.
+
+    Security checks:
+    1. Only allows TERM signal (-15 or default), blocks KILL signal (-9)
+    2. Verifies PID corresponds to an allowed process name
+    3. Blocks killing system processes (PID 1, etc.)
+
+    Uses shlex to parse the command, avoiding regex bypass vulnerabilities.
+
+    Returns:
+        Tuple of (is_allowed, reason_if_blocked)
+    """
+    # Same allowed process names as pkill
+    allowed_process_names = {
+        "node",
+        "npm",
+        "npx",
+        "vite",
+        "next",
+    }
+
+    try:
+        tokens = shlex.split(command_string)
+    except ValueError:
+        return False, "Could not parse kill command"
+
+    if not tokens:
+        return False, "Empty kill command"
+
+    # Extract signal and PID
+    # kill command format: kill [-signal] pid
+    signal = None
+    pid = None
+
+    for token in tokens[1:]:
+        if token.startswith("-"):
+            # Signal specification (e.g., -15, -TERM, -9, -KILL)
+            signal_str = token[1:]  # Remove the leading dash
+            
+            # Block -9 (KILL signal) - too dangerous
+            if signal_str in ("9", "KILL"):
+                return False, "kill -9 (KILL signal) is not allowed for safety"
+            
+            # Only allow -15 (TERM signal) or default (no signal = TERM)
+            if signal_str not in ("15", "TERM"):
+                return False, f"kill only allows TERM signal (-15), got: -{signal_str}"
+            
+            signal = signal_str
+        else:
+            # This should be the PID
+            try:
+                pid = int(token)
+            except ValueError:
+                return False, f"kill requires a valid PID, got: {token}"
+
+    if pid is None:
+        return False, "kill requires a PID"
+
+    # Block killing system processes
+    if pid <= 1:
+        return False, "kill not allowed for system processes (PID <= 1)"
+
+    # Verify the PID corresponds to an allowed process
+    # Try multiple methods to get process name
+    process_name = None
+    
+    # Method 1: Try /proc/[pid]/comm (Linux)
+    proc_comm_path = f"/proc/{pid}/comm"
+    if os.path.exists(proc_comm_path):
+        try:
+            with open(proc_comm_path, "r") as f:
+                process_name = f.read().strip()
+        except (OSError, IOError):
+            pass
+    
+    # Method 2: Use ps command (cross-platform fallback)
+    if process_name is None:
+        try:
+            # ps -p [pid] -o comm= returns just the command name
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "comm="],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                process_name = result.stdout.strip()
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            # ps command failed or not available
+            pass
+    
+    # If we still can't get process name, be conservative and block
+    if process_name is None:
+        return False, f"Could not verify process name for PID {pid}. Use pkill instead for better security."
+
+    # Extract base command name (handle paths like /usr/bin/node -> node)
+    base_name = os.path.basename(process_name)
+
+    if base_name in allowed_process_names:
+        return True, ""
+    
+    return False, f"kill only allowed for dev processes: {allowed_process_names}, got: {base_name}"
+
+
 def validate_chmod_command(command_string: str) -> tuple[bool, str]:
     """
     Validate chmod commands - only allow making files executable with +x.
@@ -345,6 +463,10 @@ async def bash_security_hook(input_data, tool_use_id=None, context=None):
 
             if cmd == "pkill":
                 allowed, reason = validate_pkill_command(cmd_segment)
+                if not allowed:
+                    return {"decision": "block", "reason": reason}
+            elif cmd == "kill":
+                allowed, reason = validate_kill_command(cmd_segment)
                 if not allowed:
                     return {"decision": "block", "reason": reason}
             elif cmd == "chmod":
