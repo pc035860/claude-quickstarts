@@ -5,3 +5,4 @@ generations/
 logs/
 
 specs/handover/
+__pycache__/
