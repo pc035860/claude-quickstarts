@@ -1,681 +1,3056 @@
 <project_specification>
-  <project_name>Claude.ai Clone - AI Chat Interface</project_name>
+  <project_name>POS POC - 團購菜單與組合/加購系統</project_name>
 
   <overview>
-    Build a fully functional clone of claude.ai, Anthropic's conversational AI interface. The application should
-    provide a clean, modern chat interface for interacting with Claude via the API, including features like
-    conversation management, artifact rendering, project organization, multiple model selection, and advanced
-    settings. The UI should closely match claude.ai's design using Tailwind CSS with a focus on excellent
-    user experience and responsive design.
+    建立可被分享與 fork 的菜單系統，支援巢狀選項與多種優惠規則（組合價、加購、買一送一）。
+    以團購為核心場景：每個參與者在單一團內有自己的購物車；提交後由團主彙整、可修改或駁回。
+    價格規則可疊加；無庫存、單階段購物車。
+
+    本規格專注於待完成的前端 UI 功能，特別是：
+    - 編輯器系統（菜單、規則、Combo 編輯器）
+    - AI 菜單生成功能
+    - 團主操作介面
   </overview>
 
   <technology_stack>
-    <api_key>
-        You can use an API key located at /tmp/api-key for testing. You will not be allowed to read this file, but you can reference it in code.
-    </api_key>
     <frontend>
-      <framework>React with Vite</framework>
-      <styling>Tailwind CSS (via CDN)</styling>
-      <state_management>React hooks and context</state_management>
-      <routing>React Router for navigation</routing>
-      <markdown>React Markdown for message rendering</markdown>
-      <code_highlighting>Syntax highlighting for code blocks</code_highlighting>
-      <port>Only launch on port {frontend_port}</port>
+      <framework>Next.js 16+ App Router</framework>
+      <styling>Tailwind CSS + shadcn/ui</styling>
+      <state_management>React hooks, SWR for data fetching</state_management>
+      <drag_and_drop>@dnd-kit/core for sortable interfaces</drag_and_drop>
+      <forms>React Hook Form + Zod validation</forms>
+      <ai_sdk>Vercel AI SDK (latest) for AI features</ai_sdk>
     </frontend>
     <backend>
-      <runtime>Node.js with Express</runtime>
-      <database>SQLite with better-sqlite3</database>
-      <api_integration>Claude API for chat completions</api_integration>
-      <streaming>Server-Sent Events for streaming responses</streaming>
+      <runtime>Supabase Edge Functions (Deno)</runtime>
+      <database>PostgreSQL via Supabase</database>
+      <storage>Supabase Storage for media</storage>
+      <auth>Supabase Auth (login + anonymous device ID)</auth>
     </backend>
-    <communication>
-      <api>RESTful endpoints</api>
-      <streaming>SSE for real-time message streaming</streaming>
-      <claude_api>Integration with Claude API using Anthropic SDK</claude_api>
-    </communication>
+    <ai_integration>
+      <provider>Google Gemini API</provider>
+      <model>gemini-3-pro-preview</model>
+      <sdk>Vercel AI SDK (@ai-sdk/google)</sdk>
+      <api_key>
+        <environment_variable>GEMINI_API_KEY</environment_variable>
+        <description>Google Gemini API key，從環境變數讀取</description>
+        <usage>在程式碼中使用 createGoogleGenerativeAI 明確指定 apiKey 參數，從環境變數 GEMINI_API_KEY 讀取</usage>
+        <note>預設環境變數名稱為 GOOGLE_GENERATIVE_AI_API_KEY，但可使用 GEMINI_API_KEY 並在程式碼中明確指定</note>
+      </api_key>
+      <features>
+        - Text-to-menu generation
+        - Image-to-menu generation (multimodal)
+        - Streaming responses
+      </features>
+    </ai_integration>
   </technology_stack>
 
-  <prerequisites>
-    <environment_setup>
-      - Repository includes .env with VITE_ANTHROPIC_API_KEY configured
-      - Frontend dependencies pre-installed via pnpm
-      - Backend code goes in /server directory
-      - Install backend dependencies as needed
-    </environment_setup>
-  </prerequisites>
-
   <core_features>
-    <chat_interface>
-      - Clean, centered chat layout with message bubbles
-      - Streaming message responses with typing indicator
-      - Markdown rendering with proper formatting
-      - Code blocks with syntax highlighting and copy button
-      - LaTeX/math equation rendering
-      - Image upload and display in messages
-      - Multi-turn conversations with context
-      - Message editing and regeneration
-      - Stop generation button during streaming
-      - Input field with auto-resize textarea
-      - Character count and token estimation
-      - Keyboard shortcuts (Enter to send, Shift+Enter for newline)
-    </chat_interface>
+    <!-- ============================================ -->
+    <!-- SECTION 1: 編輯器系統 (P1 優先) -->
+    <!-- ============================================ -->
 
-    <artifacts>
-      - Artifact detection and rendering in side panel
-      - Code artifact viewer with syntax highlighting
-      - HTML/SVG preview with live rendering
-      - React component preview
-      - Mermaid diagram rendering
-      - Text document artifacts
-      - Artifact editing and re-prompting
-      - Full-screen artifact view
-      - Download artifact content
-      - Artifact versioning and history
-    </artifacts>
+    <editor_system>
+      <title>統一編輯器架構</title>
+      <description>
+        菜單、規則、Combo 編輯器共用的核心架構，支援：
+        - 結構性改動（巢狀編輯）
+        - 一次性儲存（批次提交）
+        - 歷史記錄（Undo/Redo）
+        - Optimistic Update
+      </description>
 
-    <conversation_management>
-      - Create new conversations
-      - Conversation list in sidebar
-      - Rename conversations
-      - Delete conversations
-      - Search conversations by title/content
-      - Pin important conversations
-      - Archive conversations
-      - Conversation folders/organization
-      - Duplicate conversation
-      - Export conversation (JSON, Markdown, PDF)
-      - Conversation timestamps (created, last updated)
-      - Unread message indicators
-    </conversation_management>
+      <editor_state_management>
+        <title>編輯狀態管理 (useEditorState)</title>
+        <features>
+          - 本地草稿狀態（與伺服器狀態分離）
+          - Change tracking（追蹤哪些欄位被修改）
+          - Dirty state detection（偵測未儲存變更）
+          - Conflict resolution（衝突解決策略）
+        </features>
+        <implementation>
+          ```typescript
+          interface EditorState&lt;T&gt; {
+            // 原始資料（從伺服器取得）
+            original: T | null;
+            // 當前編輯中的資料
+            draft: T | null;
+            // 變更追蹤
+            changes: ChangeSet;
+            // 狀態
+            isDirty: boolean;
+            isSaving: boolean;
+            lastSaved: Date | null;
+            // 歷史記錄
+            history: HistoryStack&lt;T&gt;;
+            canUndo: boolean;
+            canRedo: boolean;
+          }
 
-    <projects>
-      - Create projects to group related conversations
-      - Project knowledge base (upload documents)
-      - Project-specific custom instructions
-      - Share projects with team (mock feature)
-      - Project settings and configuration
-      - Move conversations between projects
-      - Project templates
-      - Project analytics (usage stats)
-    </projects>
+          interface ChangeSet {
+            added: string[];      // 新增的 entity IDs
+            modified: string[];   // 修改的 entity IDs
+            deleted: string[];    // 刪除的 entity IDs
+            reordered: boolean;   // 是否有排序變更
+          }
+          ```
+        </implementation>
+      </editor_state_management>
 
-    <model_selection>
-      - Model selector dropdown with the following models:
-        - Claude Sonnet 4.5 (claude-sonnet-4-5-20250929) - default
-        - Claude Haiku 4.5 (claude-haiku-4-5-20251001)
-        - Claude Opus 4.1 (claude-opus-4-1-20250805)
-      - Model capabilities display
-      - Context window indicator
-      - Model-specific pricing info (display only)
-      - Switch models mid-conversation
-      - Model comparison view
-    </model_selection>
+      <history_system>
+        <title>歷史記錄系統 (Undo/Redo)</title>
+        <features>
+          - 操作層級的歷史記錄（非字元層級）
+          - 批次操作合併（如連續輸入）
+          - 最大歷史堆疊深度（50 筆）
+          - 快捷鍵支援（Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z）
+        </features>
+        <implementation>
+          ```typescript
+          interface HistoryStack&lt;T&gt; {
+            past: HistoryEntry&lt;T&gt;[];
+            future: HistoryEntry&lt;T&gt;[];
+          }
 
-    <custom_instructions>
-      - Global custom instructions
-      - Project-specific custom instructions
-      - Conversation-specific system prompts
-      - Custom instruction templates
-      - Preview how instructions affect responses
-    </custom_instructions>
+          interface HistoryEntry&lt;T&gt; {
+            state: T;
+            timestamp: number;
+            action: string;  // 操作描述，用於顯示
+          }
 
-    <settings_preferences>
-      - Theme selection (Light, Dark, Auto)
-      - Font size adjustment
-      - Message density (compact, comfortable, spacious)
-      - Code theme selection
-      - Language preferences
-      - Accessibility options
-      - Keyboard shortcuts reference
-      - Data export options
-      - Privacy settings
-      - API key management
-    </settings_preferences>
+          // Hook API
+          function useHistory&lt;T&gt;() {
+            return {
+              push: (state: T, action: string) => void;
+              undo: () => T | null;
+              redo: () => T | null;
+              canUndo: boolean;
+              canRedo: boolean;
+              clear: () => void;
+            };
+          }
+          ```
+        </implementation>
+      </history_system>
 
-    <advanced_features>
-      - Temperature control slider
-      - Max tokens adjustment
-      - Top-p (nucleus sampling) control
-      - System prompt override
-      - Thinking/reasoning mode toggle
-      - Multi-modal input (text + images)
-      - Voice input (optional, mock UI)
-      - Response suggestions
-      - Related prompts
-      - Conversation branching
-    </advanced_features>
+      <optimistic_update>
+        <title>Optimistic Update 策略</title>
+        <features>
+          - 立即更新 UI（不等待伺服器回應）
+          - 失敗時自動回滾
+          - 顯示同步狀態（Saving... / Saved / Error）
+          - 衝突偵測與解決
+        </features>
+        <implementation>
+          ```typescript
+          // 使用 SWR mutate 進行 optimistic update
+          async function saveWithOptimistic&lt;T&gt;(
+            key: string,
+            data: T,
+            saveFn: (data: T) => Promise&lt;T&gt;
+          ) {
+            // 1. 樂觀更新本地快取
+            mutate(key, data, false);
 
-    <collaboration>
-      - Share conversation via link (read-only)
-      - Export conversation formats
-      - Conversation templates
-      - Prompt library
-      - Share artifacts
-      - Team workspaces (mock UI)
-    </collaboration>
+            try {
+              // 2. 實際儲存到伺服器
+              const result = await saveFn(data);
+              // 3. 用伺服器回應更新快取
+              mutate(key, result, false);
+              return { success: true, data: result };
+            } catch (error) {
+              // 4. 失敗時回滾
+              mutate(key);
+              return { success: false, error };
+            }
+          }
+          ```
+        </implementation>
+      </optimistic_update>
 
-    <search_discovery>
-      - Search across all conversations
-      - Filter by project, date, model
-      - Prompt library with categories
-      - Example conversations
-      - Quick actions menu
-      - Command palette (Cmd/Ctrl+K)
-    </search_discovery>
+      <batch_save>
+        <title>批次儲存機制</title>
+        <description>
+          將多個變更打包成單一 API 請求，減少網路往返，
+          並確保原子性（全部成功或全部失敗）。
+        </description>
+        <features>
+          - 變更收集與合併
+          - 依賴排序（確保父項目先建立）
+          - 交易式提交（Transaction）
+          - 進度追蹤
+        </features>
+        <api_design>
+          ```typescript
+          // 批次儲存 API
+          POST /functions/v1/batch_save_menu
 
-    <usage_tracking>
-      - Token usage display per message
-      - Conversation cost estimation
-      - Daily/monthly usage dashboard
-      - Usage limits and warnings
-      - API quota tracking
-    </usage_tracking>
+          {
+            "menu_id": "uuid",
+            "operations": [
+              { "op": "create", "type": "item", "data": {...} },
+              { "op": "update", "type": "item", "id": "uuid", "data": {...} },
+              { "op": "delete", "type": "item", "id": "uuid" },
+              { "op": "reorder", "type": "item", "ids": ["uuid1", "uuid2", ...] },
+              { "op": "create", "type": "option_group", "data": {...} },
+              { "op": "link", "type": "item_group", "item_id": "uuid", "group_id": "uuid" }
+            ]
+          }
+          ```
+        </api_design>
+      </batch_save>
+    </editor_system>
 
-    <onboarding>
-      - Welcome screen for new users
-      - Feature tour highlights
-      - Example prompts to get started
-      - Quick tips and best practices
-      - Keyboard shortcuts tutorial
-    </onboarding>
+    <!-- ============================================ -->
+    <!-- SECTION 2: 菜單編輯器 -->
+    <!-- ============================================ -->
 
-    <accessibility>
-      - Full keyboard navigation
-      - Screen reader support
-      - ARIA labels and roles
-      - High contrast mode
-      - Focus management
-      - Reduced motion support
-    </accessibility>
+    <menu_editor>
+      <title>菜單編輯器 (Menu Editor)</title>
+      <route>/dashboard/menus/[id]/edit</route>
 
-    <responsive_design>
-      - Mobile-first responsive layout
-      - Touch-optimized interface
-      - Collapsible sidebar on mobile
-      - Swipe gestures for navigation
-      - Adaptive artifact display
-      - Progressive Web App (PWA) support
-    </responsive_design>
+      <nested_tree_editor>
+        <title>巢狀樹狀編輯器</title>
+        <description>
+          視覺化的樹狀結構編輯器，支援任意深度的巢狀選項。
+          用戶可直觀地看到品項→選項群組→選項→子群組的層級關係。
+        </description>
+        <features>
+          - 可展開/摺疊的樹狀結構
+          - 拖拽調整順序和層級
+          - 內聯編輯（點擊即可編輯）
+          - 新增/刪除節點
+          - 批次操作（全部展開、全部摺疊）
+        </features>
+        <ui_structure>
+          ```
+          菜單: 快餐菜單
+          ├─ 📦 經典雞腿堡 ($120)
+          │  ├─ 🏷️ 口味 [必選 1]
+          │  │  ├─ ○ 辣味 (+$0)
+          │  │  │  └─ 🏷️ 辣味專屬醬 [必選 1]
+          │  │  │     └─ ○ 辣美乃滋 (+$0)
+          │  │  └─ ○ 原味 (+$0)
+          │  │     └─ 🏷️ 原味專屬醬 [必選 1]
+          │  │        └─ ○ 蜂蜜芥末 (+$0)
+          │  └─ 🏷️ 加購配料 [可選 0-3]
+          │     ├─ □ 起司片 (+$15)
+          │     └─ □ 培根 (+$20)
+          └─ 📦 薯條 ($45)
+             └─ 🏷️ 份量 [必選 1]
+                ├─ ○ 小份 (+$0)
+                ├─ ○ 中份 (+$10)
+                └─ ○ 大份 (+$20)
+          ```
+        </ui_structure>
+        <interactions>
+          - 拖拽品項調整排序
+          - 拖拽選項群組到不同品項
+          - 拖拽選項到不同群組
+          - 雙擊展開子群組編輯
+          - 右鍵選單（複製、刪除、移動）
+        </interactions>
+      </nested_tree_editor>
+
+      <item_editor>
+        <title>品項編輯器</title>
+        <fields>
+          - name: string (1-64 字元)
+          - description: string (可選, 最多 500 字元) [需新增欄位]
+          - base_price: number (以分為單位)
+          - active: boolean
+          - category_id: string (可選) [需新增欄位]
+          - image: media reference
+        </fields>
+        <features>
+          - 圖片上傳與預覽
+          - 價格輸入（自動轉換元/分）
+          - 啟用/停用切換
+          - 複製品項（含選項群組）
+        </features>
+      </item_editor>
+
+      <option_group_editor>
+        <title>選項群組編輯器</title>
+        <fields>
+          - name: string (1-64 字元)
+          - required: boolean
+          - min_select: number (≥0)
+          - max_select: number (≥min_select, 0=無限)
+          - display_order: number
+          - active: boolean
+        </fields>
+        <features>
+          - 選擇規則視覺化（必選/可選/多選）
+          - 子群組連結管理
+          - 拖拽排序選項
+        </features>
+      </option_group_editor>
+
+      <option_choice_editor>
+        <title>選項編輯器</title>
+        <fields>
+          - name: string (1-64 字元)
+          - price_delta: number (可為負)
+          - active: boolean
+          - child_groups: string[] (子群組名稱)
+        </fields>
+        <features>
+          - 價格增減視覺化（+$10 / -$5）
+          - 子群組快速連結
+          - 圖片上傳
+        </features>
+      </option_choice_editor>
+
+      <drag_and_drop>
+        <title>拖拽排序功能</title>
+        <library>@dnd-kit/core + @dnd-kit/sortable</library>
+        <features>
+          - 品項卡片拖拽排序
+          - 選項群組拖拽排序
+          - 選項選擇拖拽排序
+          - 跨區拖拽（移動到不同父節點）
+          - 拖拽預覽（ghost element）
+          - 觸控設備支援
+        </features>
+        <implementation>
+          ```typescript
+          // 排序變更後更新 display_order
+          function handleDragEnd(event: DragEndEvent) {
+            const { active, over } = event;
+            if (!over || active.id === over.id) return;
+
+            setItems(items => {
+              const oldIndex = items.findIndex(i => i.id === active.id);
+              const newIndex = items.findIndex(i => i.id === over.id);
+              const reordered = arrayMove(items, oldIndex, newIndex);
+
+              // 更新 display_order
+              return reordered.map((item, index) => ({
+                ...item,
+                display_order: index
+              }));
+            });
+
+            // 標記為需要儲存
+            markAsReordered('items');
+          }
+          ```
+        </implementation>
+      </drag_and_drop>
+
+      <search_and_filter>
+        <title>搜尋與篩選</title>
+        <features>
+          - 品項名稱搜尋（即時過濾）
+          - 啟用/停用篩選
+          - 價格區間篩選
+          - 分類篩選
+        </features>
+      </search_and_filter>
+
+      <batch_operations>
+        <title>批次操作</title>
+        <features>
+          - 全選/反選
+          - 批次啟用/停用
+          - 批次刪除（含確認對話框）
+          - 批次設定分類
+          - 批次調整價格（百分比/固定金額）
+        </features>
+      </batch_operations>
+
+      <item_copy>
+        <title>品項複製功能</title>
+        <description>
+          支援一鍵複製品項，包含所有巢狀選項群組和選項。
+          複製品為獨立實體，修改不影響原品項。
+        </description>
+        <features>
+          - 複製品項（含所有選項群組和選項）
+          - 複製選項群組（可跨品項複製）
+          - 自動重命名（如：原味蛋餅 → 原味蛋餅 (複製)）
+          - 複製後立即進入編輯模式
+        </features>
+        <implementation>
+          ```typescript
+          // Server Action: duplicateMenuItem
+          'use server'
+          import { nanoid } from 'nanoid';
+
+          export async function duplicateMenuItem(
+            menuId: string,
+            itemId: string
+          ): Promise&lt;MenuItem&gt; {
+            const supabase = createClient();
+
+            // 1. 取得原品項及所有巢狀資料
+            const { data: original } = await supabase
+              .from('menu_item')
+              .select(`
+                *,
+                option_groups:menu_item_option_group(
+                  option_group:option_group(
+                    *,
+                    choices:option_choice(*)
+                  )
+                )
+              `)
+              .eq('id', itemId)
+              .single();
+
+            if (!original) throw new Error('Item not found');
+
+            // 2. 建立新品項
+            const newItem = await supabase
+              .from('menu_item')
+              .insert({
+                ...omit(original, ['id', 'created_at', 'option_groups']),
+                id: nanoid(),
+                name: `${original.name} (複製)`,
+                display_order: original.display_order + 1
+              })
+              .select()
+              .single();
+
+            // 3. 遞迴複製選項群組和選項
+            for (const og of original.option_groups) {
+              const newGroup = await duplicateOptionGroup(og.option_group);
+              await linkItemToGroup(newItem.data.id, newGroup.id);
+            }
+
+            return newItem.data;
+          }
+          ```
+        </implementation>
+        <ui_integration>
+          - 品項卡片右鍵選單：「複製品項」
+          - 品項編輯器工具列：複製按鈕
+          - 拖拽時按住 Alt/Option 鍵複製
+          - 批次選取後可批次複製
+        </ui_integration>
+        <keyboard_shortcuts>
+          - Cmd/Ctrl + D: 複製選中品項
+          - Cmd/Ctrl + Shift + D: 複製選中品項群組
+        </keyboard_shortcuts>
+      </item_copy>
+    </menu_editor>
+
+    <!-- ============================================ -->
+    <!-- SECTION 3: 規則編輯器 -->
+    <!-- ============================================ -->
+
+    <rule_editor>
+      <title>規則編輯器 (Rule Editor)</title>
+      <route>/dashboard/menus/[id]/rules</route>
+
+      <rule_list>
+        <title>規則列表</title>
+        <features>
+          - 依優先序排列
+          - 類型標籤（combo/addon/bogo）
+          - 啟用/停用切換
+          - 快速預覽（hover 顯示條件和動作摘要）
+          - 拖拽調整優先序
+        </features>
+        <ui_structure>
+          ```
+          規則管理
+          ──────────────────────────────────────
+          [+ 新增規則] [篩選: 全部 ▼]
+
+          優先序 │ 名稱              │ 類型  │ 狀態
+          ───────┼───────────────────┼───────┼──────
+          1      │ 漢堡可樂組合      │ combo │ ✅
+          2      │ 滿 300 送薯條     │ bogo  │ ✅
+          3      │ 炸雞加購優惠      │ addon │ ⏸️
+          ```
+        </ui_structure>
+      </rule_list>
+
+      <rule_form>
+        <title>規則編輯表單</title>
+        <fields>
+          - type: combo | addon | bogo
+          - name: string
+          - priority: number
+          - stackable: boolean
+          - scope: item | choice | group | cart
+          - condition: JSON (視覺化編輯器)
+          - action: JSON (視覺化編輯器)
+          - target_item_ids: string[]
+          - target_choice_ids: string[]
+          - active: boolean
+        </fields>
+      </rule_form>
+
+      <condition_builder>
+        <title>條件建構器 (Visual Builder)</title>
+        <description>
+          視覺化的條件編輯器，讓用戶無需了解 JSON 結構
+          即可建立複雜的規則條件。
+        </description>
+        <condition_types>
+          - all_of: 全部符合（AND）
+          - any_of: 任一符合（OR）
+          - count_of: 數量條件
+        </condition_types>
+        <ui_components>
+          - 品項選擇器（從菜單選取品項）
+          - 選項選擇器（從品項選取選項）
+          - 數量輸入（至少 N 個）
+          - 條件群組（可巢狀）
+        </ui_components>
+        <example_ui>
+          ```
+          條件建構器
+          ──────────────────────────────────────
+          ◉ 全部符合 (AND)
+          │
+          ├─ [品項] 經典雞腿堡 × 至少 1 個  [×]
+          ├─ [品項] 可樂 × 至少 1 個        [×]
+          └─ [+ 新增條件]
+
+          配對方式: ○ 單次配對  ◉ 重複配對 (pairwise)
+          ```
+        </example_ui>
+      </condition_builder>
+
+      <action_builder>
+        <title>動作建構器 (Visual Builder)</title>
+        <description>
+          視覺化的動作編輯器，支援高階 DSL 和低階格式。
+        </description>
+        <action_types>
+          - amount_off_bundle: 組合折扣固定金額
+          - bundle_fixed_price: 組合套餐固定總價
+          - special_price: 特價
+          - grant_item: 贈送品項
+        </action_types>
+        <distribution_modes>
+          - proportional: 按比例分配
+          - to_cheapest: 便宜者優先
+        </distribution_modes>
+        <example_ui>
+          ```
+          動作建構器
+          ──────────────────────────────────────
+          折扣類型: ○ 固定折扣  ◉ 套餐價  ○ 特價
+
+          套餐價格: $ [250.00]
+
+          折扣分配: ◉ 按比例分配  ○ 便宜者優先
+
+          預覽:
+          ├─ 經典雞腿堡 $120 → 折 $40 → $80
+          └─ 可樂 $30 → 折 $10 → $20
+          ────────────────────────────
+          原價 $150 → 套餐價 $100 (省 $50)
+          ```
+        </example_ui>
+      </action_builder>
+
+      <target_selector>
+        <title>目標選擇器</title>
+        <description>
+          選擇規則適用的品項或選項。
+        </description>
+        <features>
+          - 從菜單樹狀結構選取
+          - 多選支援
+          - 搜尋過濾
+          - 已選項目預覽
+        </features>
+      </target_selector>
+
+      <rule_preview>
+        <title>規則預覽/測試</title>
+        <description>
+          在儲存前預覽規則效果，可輸入測試購物車來驗證。
+        </description>
+        <features>
+          - 模擬購物車輸入
+          - 即時計算折扣
+          - 顯示規則觸發情況
+          - 邊界案例提示
+        </features>
+      </rule_preview>
+    </rule_editor>
+
+    <!-- ============================================ -->
+    <!-- SECTION 4: AI 菜單生成 -->
+    <!-- ============================================ -->
+
+    <ai_menu_generation>
+      <title>AI 菜單生成 (AI Menu Generator)</title>
+      <route>/dashboard/menus/new/ai</route>
+
+      <technology>
+        <sdk>Vercel AI SDK (@ai-sdk/google)</sdk>
+        <model>gemini-3-pro-preview</model>
+        <features>
+          - Streaming responses (useChat hook)
+          - Multimodal input (text + image)
+          - Structured output (JSON mode)
+        </features>
+      </technology>
+
+      <text_to_menu>
+        <title>文字生成菜單</title>
+        <description>
+          用戶輸入描述，AI 自動生成完整的菜單結構，
+          包含品項、選項群組、選項和建議價格。
+        </description>
+        <input_examples>
+          - "幫我生成一個台式早餐店的菜單，包含蛋餅、吐司、飲料"
+          - "日式拉麵店菜單，有湯頭和配料選項"
+          - "咖啡廳飲料菜單，冷熱可選，糖度冰塊可調"
+        </input_examples>
+        <output_format>
+          ```json
+          {
+            "name": "台式早餐店",
+            "items": [
+              {
+                "name": "蛋餅",
+                "base_price": 3500,
+                "description": "酥脆外皮，蛋香四溢",
+                "option_groups": [
+                  {
+                    "name": "口味",
+                    "required": true,
+                    "min_select": 1,
+                    "max_select": 1,
+                    "choices": [
+                      { "name": "原味", "price_delta": 0 },
+                      { "name": "起司", "price_delta": 1000 },
+                      { "name": "玉米", "price_delta": 500 },
+                      { "name": "鮪魚", "price_delta": 1500 }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+          ```
+        </output_format>
+        <ui_flow>
+          1. 用戶輸入文字描述
+          2. 顯示 streaming 生成過程（逐步顯示品項）
+          3. 生成完成後進入預覽/編輯模式
+          4. 用戶可調整後儲存
+        </ui_flow>
+      </text_to_menu>
+
+      <image_to_menu>
+        <title>圖片生成菜單</title>
+        <description>
+          用戶上傳菜單圖片（紙本菜單、價目表），
+          AI 自動辨識並轉換為數位菜單。
+        </description>
+        <supported_formats>
+          - JPEG, PNG, WebP
+          - PDF (first page)
+          - 最大 10MB
+        </supported_formats>
+        <recognition_features>
+          - OCR 文字辨識
+          - 價格提取
+          - 結構分析（分類、品項、選項）
+          - 多語言支援（繁中、簡中、英文、日文）
+        </recognition_features>
+        <ui_flow>
+          1. 用戶上傳或拖放圖片
+          2. 顯示圖片預覽
+          3. AI 分析中（顯示進度）
+          4. 顯示辨識結果（可與原圖對照）
+          5. 用戶修正錯誤後儲存
+        </ui_flow>
+      </image_to_menu>
+
+      <api_implementation>
+        <title>API 實作</title>
+        <configuration>
+          <environment_variables>
+            <variable>
+              <name>GEMINI_API_KEY</name>
+              <description>Google Gemini API key，從 Google AI Studio 取得</description>
+              <usage>在程式碼中使用 createGoogleGenerativeAI 明確指定 apiKey 參數</usage>
+              <example>
+                # .env.local
+                GEMINI_API_KEY=your-api-key-here
+              </example>
+            </variable>
+          </environment_variables>
+        </configuration>
+        <route_handler>
+          ```typescript
+          // app/api/ai/generate-menu/route.ts
+          import { streamText } from 'ai';
+          import { createGoogleGenerativeAI } from '@ai-sdk/google';
+
+          // 建立 Google provider，明確指定從環境變數 GEMINI_API_KEY 讀取 API key
+          const google = createGoogleGenerativeAI({
+            apiKey: process.env.GEMINI_API_KEY!,
+          });
+
+          export async function POST(req: Request) {
+            const { prompt, image } = await req.json();
+
+            const messages = [
+              {
+                role: 'user',
+                content: image
+                  ? [
+                      { type: 'text', text: prompt || '請分析這張菜單圖片，轉換為 JSON 格式' },
+                      { type: 'image', image: image }
+                    ]
+                  : prompt
+              }
+            ];
+
+            const result = streamText({
+              model: google('gemini-3-pro-preview'),
+              messages,
+              system: `你是一個菜單生成助手。請根據用戶的描述或圖片生成結構化的菜單資料。
+
+輸出格式必須是有效的 JSON，包含以下結構：
+{
+  "name": "菜單名稱",
+  "items": [
+    {
+      "name": "品項名稱",
+      "base_price": 價格（以分為單位，例如 $35 = 3500）,
+      "description": "品項描述（可選）",
+      "option_groups": [
+        {
+          "name": "選項群組名稱",
+          "required": true/false,
+          "min_select": 最少選擇數,
+          "max_select": 最多選擇數,
+          "choices": [
+            { "name": "選項名稱", "price_delta": 價格增減（分）}
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+注意事項：
+- 價格以「分」為單位（$35 = 3500）
+- 推測合理的選項群組（口味、大小、加料等）
+- 若有看不清或不確定的內容，標記為 [待確認]
+- 保持品項名稱簡潔清晰`,
+            });
+
+            return result.toTextStreamResponse();
+          }
+          ```
+        </route_handler>
+        <client_usage>
+          ```typescript
+          // 使用 useChat hook
+          import { useChat } from 'ai/react';
+
+          function AIMenuGenerator() {
+            const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+              api: '/api/ai/generate-menu',
+            });
+
+            // 解析最後一則 AI 回應為 menu JSON
+            const generatedMenu = useMemo(() => {
+              const lastAssistant = messages.filter(m => m.role === 'assistant').pop();
+              if (!lastAssistant) return null;
+              try {
+                return JSON.parse(lastAssistant.content);
+              } catch {
+                return null;
+              }
+            }, [messages]);
+
+            return (/* UI */);
+          }
+          ```
+        </client_usage>
+      </api_implementation>
+
+      <ui_components>
+        <input_section>
+          - 文字輸入區（多行 textarea）
+          - 圖片上傳區（drag-and-drop）
+          - 範例提示（Example prompts）
+          - 生成按鈕
+        </input_section>
+        <preview_section>
+          - Streaming 輸出顯示
+          - 生成進度指示
+          - 品項卡片預覽
+          - 錯誤提示
+        </preview_section>
+        <edit_section>
+          - 內聯編輯（品項名稱、價格）
+          - 刪除不需要的品項
+          - 新增遺漏的品項
+          - 調整選項群組
+        </edit_section>
+        <save_section>
+          - 菜單名稱輸入
+          - 儲存為新菜單
+          - 加入現有菜單
+        </save_section>
+      </ui_components>
+    </ai_menu_generation>
+
+    <!-- ============================================ -->
+    <!-- SECTION 5: 團主操作 UI -->
+    <!-- ============================================ -->
+
+    <owner_operations>
+      <title>團主操作介面</title>
+      <route>/dashboard/groups/[id]</route>
+
+      <cart_modification>
+        <title>購物車修改 (owner_modify_cart)</title>
+        <description>
+          團主可修改參與者的購物車內容，修改會產生新版本並記錄變更。
+        </description>
+        <features>
+          - 選擇參與者購物車
+          - 編輯品項數量
+          - 新增/刪除品項
+          - 輸入修改原因
+          - 變更預覽
+          - 確認提交
+        </features>
+        <ui_flow>
+          1. 點擊參與者購物車的「編輯」按鈕
+          2. 打開購物車編輯 Sheet
+          3. 修改內容（與參與者編輯體驗一致）
+          4. 輸入修改原因（必填）
+          5. 預覽變更差異
+          6. 確認並提交
+        </ui_flow>
+        <change_log_display>
+          - 顯示修改歷史
+          - 差異對比（Before/After）
+          - 修改原因
+          - 操作時間和操作者
+        </change_log_display>
+      </cart_modification>
+
+      <cart_operations>
+        <title>購物車操作</title>
+        <features>
+          - 鎖定購物車 (lock_cart)
+            - 確認對話框
+            - 說明不可逆
+          - 駁回購物車 (reject_cart)
+            - 輸入駁回原因
+            - 通知參與者
+        </features>
+      </cart_operations>
+
+      <fork_menu_ui>
+        <title>複製菜單 (fork_menu)</title>
+        <route>/dashboard/menus/[slug]</route>
+        <features>
+          - 「複製此菜單」按鈕
+          - 顯示來源菜單資訊
+          - 新菜單名稱輸入
+          - 複製完成後跳轉到編輯頁
+        </features>
+        <lineage_display>
+          - 顯示父菜單（若有）
+          - 顯示子菜單列表
+          - 菜單家族樹視圖
+        </lineage_display>
+      </fork_menu_ui>
+    </owner_operations>
+
+    <!-- ============================================ -->
+    <!-- SECTION 6: 其他 UI 改善 -->
+    <!-- ============================================ -->
+
+    <ui_improvements>
+      <media_upload>
+        <title>媒體上傳改善</title>
+        <features>
+          - 選項群組圖片上傳（scope='group'）
+          - 選項選擇圖片上傳（scope='choice'）
+          - 拖拽上傳支援
+          - 上傳進度顯示
+          - 圖片預覽與裁切
+          - 批次上傳
+        </features>
+      </media_upload>
+
+      <loading_states>
+        <title>載入狀態改善</title>
+        <features>
+          - Skeleton loaders for lists
+          - Sheet/Dialog 開啟時的 loading state
+          - 按鈕 loading state
+          - 進度指示器
+        </features>
+      </loading_states>
+
+      <error_handling>
+        <title>錯誤處理改善</title>
+        <features>
+          - 統一錯誤碼處理（參考 spec.md Section 6.1）
+          - 用戶友善的錯誤訊息
+          - 錯誤邊界（Error Boundary）
+          - 重試機制
+        </features>
+      </error_handling>
+
+      <price_utilities>
+        <title>價格工具函數</title>
+        <implementation>
+          ```typescript
+          // lib/price.ts
+
+          /**
+           * 將分轉換為元的顯示格式
+           * @example formatPrice(3500) => "$35.00"
+           */
+          export function formatPrice(cents: number): string {
+            return `$${(cents / 100).toFixed(2)}`;
+          }
+
+          /**
+           * 將元轉換為分
+           * @example parsePriceToCents("35.00") => 3500
+           */
+          export function parsePriceToCents(dollars: string): number {
+            const num = parseFloat(dollars);
+            if (isNaN(num)) return 0;
+            return Math.round(num * 100);
+          }
+
+          /**
+           * 格式化價格增減
+           * @example formatPriceDelta(1500) => "+$15.00"
+           * @example formatPriceDelta(-500) => "-$5.00"
+           */
+          export function formatPriceDelta(cents: number): string {
+            const prefix = cents >= 0 ? '+' : '';
+            return `${prefix}$${(cents / 100).toFixed(2)}`;
+          }
+          ```
+        </implementation>
+      </price_utilities>
+    </ui_improvements>
+
+    <!-- ============================================ -->
+    <!-- SECTION 7: 團購流程 UI -->
+    <!-- ============================================ -->
+
+    <group_buy_flow>
+      <title>團購流程 UI</title>
+      <description>
+        完整的團購生命週期管理，從開團到結單的所有 UI 流程。
+        狀態機：draft → active → closed → archived
+      </description>
+
+      <create_group_buy>
+        <title>開團流程</title>
+        <route>/dashboard/groups/new</route>
+        <ui_flow>
+          1. 選擇菜單（從已建立的菜單列表中選擇）
+          2. 設定團購資訊
+             - 團購名稱（可選，預設為菜單名稱）
+             - 開始時間（可選，預設為立即開始）
+             - 結束時間（可選）
+          3. 設定加入策略（join_policy）
+             - both: 允許登入用戶和匿名用戶
+             - login: 僅允許登入用戶
+             - guest: 僅允許匿名用戶
+          4. 確認開團
+          5. 系統自動生成 menu_snapshot
+          6. 顯示分享連結（/g/[id]）
+        </ui_flow>
+        <api>
+          POST /functions/v1/open_group_buy
+          {
+            "menu_id": "uuid",
+            "name": "週五團購",
+            "join_policy": "both",
+            "starts_at": "2025-01-01T12:00:00Z",
+            "ends_at": "2025-01-01T18:00:00Z"
+          }
+        </api>
+        <ui_components>
+          - MenuSelector: 菜單選擇下拉選單
+          - JoinPolicyRadio: 加入策略選擇
+          - DateTimePicker: 時間選擇器
+          - ShareLinkCard: 分享連結卡片（含複製按鈕）
+        </ui_components>
+      </create_group_buy>
+
+      <join_group_buy>
+        <title>參與者加入流程</title>
+        <route>/g/[id]</route>
+        <ui_flow>
+          1. 訪問團購連結
+          2. 檢查 join_policy
+             - 若為 login 且未登入 → 顯示登入提示
+             - 若為 guest 且已登入 → 顯示提示（可匿名參與）
+             - 若為 both → 顯示選擇（登入或匿名）
+          3. 首次加入
+             - 登入用戶：使用帳號資訊
+             - 匿名用戶：輸入暱稱（必填）
+          4. 系統建立 participant + cart（draft 狀態）
+          5. 進入購物車編輯介面
+        </ui_flow>
+        <api>
+          POST /functions/v1/join_group_buy
+          {
+            "group_buy_id": "uuid",
+            "nickname": "小明",
+            "anonymous_device_id": "device-xxx" // 匿名用戶必填
+          }
+        </api>
+        <ui_components>
+          - JoinPolicyGate: 根據 policy 顯示對應入口
+          - NicknameInput: 匿名用戶暱稱輸入
+          - LoginPrompt: 登入提示卡片
+        </ui_components>
+      </join_group_buy>
+
+      <cart_editing>
+        <title>購物車編輯</title>
+        <route>/g/[id]</route>
+        <description>
+          參與者在團購頁面編輯自己的購物車，
+          支援巢狀選項選擇、即時計價、數量調整。
+        </description>
+        <ui_flow>
+          1. 瀏覽菜單快照（menu_snapshot）
+          2. 選擇品項
+             - 顯示價格和選項
+             - 支援巢狀選項（動態顯示子群組）
+          3. 加入購物車（add_line）
+          4. 查看購物車
+             - 顯示品項列表
+             - 支援數量調整（update_qty）
+             - 支援刪除（remove_line）
+             - 即時顯示計價（price_breakdown）
+          5. 每次變更自動觸發 recalc_cart
+        </ui_flow>
+        <api>
+          POST /functions/v1/patch_cart
+          {
+            "cart_id": "uuid",
+            "op": "add_line" | "update_qty" | "remove_line",
+            "menu_item_id": "uuid",
+            "qty": 2,
+            "choices": [{ "choice_id": "uuid" }],
+            "anonymous_device_id": "device-xxx" // 匿名用戶必填
+          }
+
+          POST /functions/v1/recalc_cart
+          {
+            "cart_id": "uuid",
+            "anonymous_device_id": "device-xxx"
+          }
+        </api>
+        <price_breakdown_display>
+          ```
+          購物車明細
+          ──────────────────────────────────────
+          經典雞腿堡 × 2
+            └─ 辣味 / 辣美乃滋          $240
+          可樂 × 2                       $60
+          ──────────────────────────────────────
+          小計                          $300
+
+          🎉 漢堡可樂組合 -$50
+          ──────────────────────────────────────
+          合計                          $250
+          ```
+        </price_breakdown_display>
+        <nested_option_control>
+          - 選擇「口味」後才顯示對應「醬料」群組
+          - 檢查 required、min_select、max_select 限制
+          - 超過限制時顯示錯誤提示
+          - 未滿足必選時阻擋加入購物車
+        </nested_option_control>
+      </cart_editing>
+
+      <cart_submission>
+        <title>購物車提交</title>
+        <description>
+          參與者完成選購後提交購物車，提交後不可自行編輯。
+          狀態轉換：draft → submitted
+        </description>
+        <ui_flow>
+          1. 點擊「確認提交」按鈕
+          2. 顯示確認對話框
+             - 顯示購物車內容摘要
+             - 顯示總金額
+             - 提示「提交後不可自行修改」
+          3. 確認後呼叫 submit_cart API
+          4. 產生 cart_version（不可變快照）
+          5. 顯示成功訊息
+          6. 切換為唯讀模式
+        </ui_flow>
+        <api>
+          POST /functions/v1/submit_cart
+          {
+            "cart_id": "uuid",
+            "anonymous_device_id": "device-xxx"
+          }
+        </api>
+        <submitted_state_ui>
+          - 顯示「已提交」狀態標籤
+          - 隱藏編輯按鈕
+          - 顯示購物車內容（唯讀）
+          - 顯示提交時間
+          - 提示「如需修改請聯繫團主」
+        </submitted_state_ui>
+      </cart_submission>
+
+      <cart_rejection>
+        <title>購物車駁回流程</title>
+        <description>
+          團主駁回購物車後，參與者可重新編輯並提交。
+          狀態轉換：submitted → rejected → draft
+        </description>
+        <participant_view>
+          - 顯示「已駁回」狀態標籤（醒目顏色）
+          - 顯示駁回原因
+          - 顯示「重新編輯」按鈕
+          - 點擊後恢復編輯模式
+        </participant_view>
+        <notification>
+          - 頁面頂部顯示駁回通知 banner
+          - 可選：瀏覽器推播通知（若有權限）
+        </notification>
+      </cart_rejection>
+
+      <group_buy_close>
+        <title>結團流程</title>
+        <route>/dashboard/groups/[id]</route>
+        <description>
+          團主結束團購，將所有購物車鎖定或作廢。
+          狀態轉換：active → closed
+        </description>
+        <ui_flow>
+          1. 點擊「結團」按鈕
+          2. 顯示確認對話框
+             - 顯示參與者統計（已提交/未提交）
+             - 警告「未提交的購物車將被作廢」
+             - 提示「此操作不可逆」
+          3. 確認後呼叫 close_group_buy API
+          4. 系統處理：
+             - submitted → locked（納入結算）
+             - draft/rejected → void（不納入結算）
+          5. 顯示結團完成頁面
+          6. 提供 CSV 匯出選項
+        </ui_flow>
+        <api>
+          POST /functions/v1/close_group_buy
+          {
+            "group_buy_id": "uuid"
+          }
+        </api>
+        <closed_state_ui>
+          - 顯示「已結團」狀態
+          - 顯示結團時間（closed_at）
+          - 顯示最終統計
+          - 提供 CSV 匯出按鈕
+          - 禁止新加入和修改
+        </closed_state_ui>
+      </group_buy_close>
+
+      <group_buy_status_display>
+        <title>團購狀態顯示</title>
+        <status_badges>
+          - draft: 「草稿」灰色
+          - active: 「進行中」綠色
+          - closed: 「已結團」藍色
+          - archived: 「已封存」灰色
+        </status_badges>
+        <timeline_display>
+          ```
+          團購時程
+          ──────────────────────────────────────
+          🟢 開團時間    2025-01-01 12:00
+          🔴 結團時間    2025-01-01 18:00 (預定)
+          ⏱️ 剩餘時間    2 小時 30 分
+          ```
+        </timeline_display>
+      </group_buy_status_display>
+    </group_buy_flow>
+
+    <!-- ============================================ -->
+    <!-- SECTION 8: 角色與權限 -->
+    <!-- ============================================ -->
+
+    <roles_and_permissions>
+      <title>角色與權限系統</title>
+      <description>
+        定義系統中的三種角色及其權限範圍。
+        權限檢查在 Edge Functions 中執行，前端負責 UI 控制。
+      </description>
+
+      <role_definitions>
+        <visitor>
+          <title>訪客 (Visitor)</title>
+          <description>
+            未登入的匿名用戶，透過裝置 ID 識別。
+          </description>
+          <permissions>
+            - 瀏覽公開菜單（/menu/[slug]）
+            - 加入團購（若 join_policy 允許）
+            - 編輯自己的購物車
+            - 提交購物車
+          </permissions>
+          <restrictions>
+            - 無法建立菜單
+            - 無法開團
+            - 無法查看他人購物車
+            - 僅能操作自己的裝置關聯資料
+          </restrictions>
+          <identification>
+            - anonymous_device_id: 128-bit 隨機 ID
+            - 儲存於 localStorage + 長效 cookie（1 年）
+            - 每次 API 請求需帶上此 ID
+          </identification>
+        </visitor>
+
+        <user>
+          <title>一般使用者 (User)</title>
+          <description>
+            已登入的註冊用戶，透過 Supabase Auth 認證。
+          </description>
+          <permissions>
+            - 訪客的所有權限
+            - 建立/編輯/刪除自己的菜單
+            - 開團（成為團主）
+            - 查看自己的團購歷史
+            - Fork 他人的公開菜單
+          </permissions>
+          <restrictions>
+            - 僅能管理自己的資源
+            - 無法修改他人菜單
+          </restrictions>
+        </user>
+
+        <owner>
+          <title>團主 (Group Buy Owner)</title>
+          <description>
+            開團的用戶，對該團購擁有管理權限。
+          </description>
+          <permissions>
+            - 一般使用者的所有權限
+            - 查看所有參與者的購物車
+            - 修改參與者的購物車（owner_modify_cart）
+            - 駁回購物車（reject_cart）
+            - 鎖定購物車（lock_cart）
+            - 結團（close_group_buy）
+            - 匯出 CSV
+          </permissions>
+          <scope>
+            僅限於自己開的團購，不影響其他團購。
+          </scope>
+        </owner>
+      </role_definitions>
+
+      <permission_matrix>
+        <title>功能權限矩陣</title>
+        <matrix>
+          ```
+          功能                    │ 訪客 │ 用戶 │ 團主
+          ────────────────────────┼──────┼──────┼──────
+          瀏覽公開菜單            │  ✅  │  ✅  │  ✅
+          加入團購                │  ✅* │  ✅  │  ✅
+          編輯自己購物車          │  ✅  │  ✅  │  ✅
+          提交購物車              │  ✅  │  ✅  │  ✅
+          建立菜單                │  ❌  │  ✅  │  ✅
+          編輯自己的菜單          │  ❌  │  ✅  │  ✅
+          Fork 菜單               │  ❌  │  ✅  │  ✅
+          開團                    │  ❌  │  ✅  │  ✅
+          查看參與者購物車        │  ❌  │  ❌  │  ✅
+          修改他人購物車          │  ❌  │  ❌  │  ✅
+          駁回購物車              │  ❌  │  ❌  │  ✅
+          結團                    │  ❌  │  ❌  │  ✅
+          匯出 CSV                │  ❌  │  ❌  │  ✅
+          ────────────────────────────────────────────
+          * 依 join_policy 設定
+          ```
+        </matrix>
+      </permission_matrix>
+
+      <ui_permission_control>
+        <title>前端權限控制</title>
+        <implementation>
+          ```typescript
+          // hooks/usePermissions.ts
+          function usePermissions(groupBuy?: GroupBuy) {
+            const { user } = useAuth();
+            const deviceId = useDeviceId();
+
+            return {
+              // 身份判斷
+              isLoggedIn: !!user,
+              isAnonymous: !user && !!deviceId,
+              isOwner: groupBuy?.owner_id === user?.id,
+
+              // 功能權限
+              canCreateMenu: !!user,
+              canOpenGroupBuy: !!user,
+              canJoinGroupBuy: (policy: JoinPolicy) => {
+                if (policy === 'login') return !!user;
+                if (policy === 'guest') return !user;
+                return true; // both
+              },
+              canModifyCart: (cart: Cart) => {
+                if (cart.status !== 'draft' && cart.status !== 'rejected') return false;
+                return isOwner || isCartOwner(cart);
+              },
+              canViewAllCarts: groupBuy?.owner_id === user?.id,
+              canCloseGroupBuy: groupBuy?.owner_id === user?.id,
+              canExportCSV: groupBuy?.owner_id === user?.id,
+            };
+          }
+          ```
+        </implementation>
+        <conditional_rendering>
+          - 根據權限顯示/隱藏按鈕
+          - 無權限時顯示提示或導向登入
+          - Dashboard 僅登入用戶可見
+        </conditional_rendering>
+      </ui_permission_control>
+    </roles_and_permissions>
+
+    <!-- ============================================ -->
+    <!-- SECTION 9: 匿名用戶體驗 -->
+    <!-- ============================================ -->
+
+    <anonymous_user_experience>
+      <title>匿名用戶體驗</title>
+      <description>
+        為匿名用戶提供清晰的狀態提示和轉換流程，
+        確保良好的使用體驗同時維護資料安全。
+      </description>
+
+      <device_id_management>
+        <title>裝置 ID 管理</title>
+        <generation>
+          ```typescript
+          // lib/device-id.ts
+          export function getOrCreateDeviceId(): string {
+            // 1. 嘗試從 localStorage 讀取
+            let deviceId = localStorage.getItem('anonymous_device_id');
+
+            // 2. 若無，嘗試從 cookie 讀取
+            if (!deviceId) {
+              deviceId = getCookie('anonymous_device_id');
+            }
+
+            // 3. 若仍無，生成新的
+            if (!deviceId) {
+              deviceId = crypto.randomUUID();
+            }
+
+            // 4. 同步儲存到 localStorage 和 cookie
+            localStorage.setItem('anonymous_device_id', deviceId);
+            setCookie('anonymous_device_id', deviceId, { maxAge: 365 * 24 * 60 * 60 });
+
+            return deviceId;
+          }
+          ```
+        </generation>
+        <middleware_integration>
+          ```typescript
+          // middleware.ts
+          export function middleware(request: NextRequest) {
+            // 在 Edge 層確保 cookie 存在
+            const deviceId = request.cookies.get('anonymous_device_id');
+            if (!deviceId) {
+              const response = NextResponse.next();
+              response.cookies.set('anonymous_device_id', crypto.randomUUID(), {
+                maxAge: 365 * 24 * 60 * 60,
+                httpOnly: false, // 需要 JS 讀取
+                sameSite: 'lax'
+              });
+              return response;
+            }
+            return NextResponse.next();
+          }
+          ```
+        </middleware_integration>
+      </device_id_management>
+
+      <anonymous_indicator>
+        <title>匿名狀態提示</title>
+        <ui_components>
+          ```
+          ┌─────────────────────────────────────────────────┐
+          │ 👤 您目前以匿名身份瀏覽                         │
+          │                                                 │
+          │ 您的購物車會綁定到此裝置。                      │
+          │ 登入後可在任何裝置查看您的團購記錄。            │
+          │                                                 │
+          │ [登入] [註冊]                      [稍後再說 ×] │
+          └─────────────────────────────────────────────────┘
+          ```
+        </ui_components>
+        <display_rules>
+          - 團購頁面頂部顯示（可關閉）
+          - 購物車提交前再次提示
+          - 關閉後記住偏好（session 內不再顯示）
+        </display_rules>
+      </anonymous_indicator>
+
+      <device_id_recovery>
+        <title>裝置 ID 遺失處理</title>
+        <detection>
+          - 偵測到 localStorage 被清除
+          - 偵測到 cookie 與 localStorage 不一致
+          - 偵測到無痕模式（可選）
+        </detection>
+        <warning_ui>
+          ```
+          ┌─────────────────────────────────────────────────┐
+          │ ⚠️ 無法找到您的購物車                           │
+          │                                                 │
+          │ 您的瀏覽器資料可能已被清除。                    │
+          │ 如果您之前有建立購物車，請聯繫團主協助。        │
+          │                                                 │
+          │ [建立新購物車] [聯繫團主]                       │
+          └─────────────────────────────────────────────────┘
+          ```
+        </warning_ui>
+      </device_id_recovery>
+
+      <login_conversion>
+        <title>轉換為登入用戶</title>
+        <description>
+          匿名用戶登入後，可選擇是否將現有購物車關聯到帳號。
+        </description>
+        <conversion_flow>
+          1. 用戶點擊「登入」
+          2. 完成登入/註冊流程
+          3. 偵測是否有 anonymous_device_id 關聯的 participant
+          4. 若有，顯示關聯確認對話框
+          5. 確認後更新 participant.user_id
+          6. 清除 anonymous_device_id（可選）
+        </conversion_flow>
+        <conversion_dialog>
+          ```
+          ┌─────────────────────────────────────────────────┐
+          │ 🔗 關聯您的購物車                               │
+          │                                                 │
+          │ 我們發現您之前以匿名身份參與了以下團購：        │
+          │                                                 │
+          │ • 週五午餐團（購物車 $250）                     │
+          │ • 下午茶團（購物車 $80）                        │
+          │                                                 │
+          │ 是否要將這些購物車關聯到您的帳號？              │
+          │                                                 │
+          │ [關聯] [略過]                                   │
+          └─────────────────────────────────────────────────┘
+          ```
+        </conversion_dialog>
+      </login_conversion>
+
+      <rate_limiting>
+        <title>匿名用戶節流</title>
+        <rules>
+          - 同一裝置 ID 在同一團購內只能有一個購物車
+          - 同一 IP 每分鐘最多 10 次 API 請求
+          - 可疑行為（頻繁換 ID）觸發 CAPTCHA
+        </rules>
+        <error_messages>
+          - "您已在此團購中建立購物車"
+          - "請求過於頻繁，請稍後再試"
+        </error_messages>
+      </rate_limiting>
+    </anonymous_user_experience>
+
+    <!-- ============================================ -->
+    <!-- SECTION 10: CSV 匯出 -->
+    <!-- ============================================ -->
+
+    <csv_export>
+      <title>CSV 匯出功能</title>
+      <description>
+        團主可匯出團購結算資料，支援進行中快照和最終版本。
+      </description>
+
+      <export_modes>
+        <snapshot_export>
+          <title>進行中快照（final=false）</title>
+          <description>
+            團購進行中時匯出當前狀態，用於預覽或中途彙整。
+          </description>
+          <conditions>
+            - group_buy.status = 'active'
+            - 包含所有 submitted 和 locked 狀態的購物車
+            - 不包含 draft 和 rejected
+          </conditions>
+          <additional_fields>
+            - as_of: 匯出時間戳記
+            - final: false
+          </additional_fields>
+        </snapshot_export>
+
+        <final_export>
+          <title>最終版本（final=true）</title>
+          <description>
+            結團後匯出最終結算資料，僅包含鎖定的購物車。
+          </description>
+          <conditions>
+            - group_buy.status = 'closed'
+            - 僅包含 locked 狀態的購物車
+            - 不包含 void
+          </conditions>
+          <additional_fields>
+            - closed_at: 結團時間
+            - final: true
+          </additional_fields>
+        </final_export>
+      </export_modes>
+
+      <csv_format>
+        <title>CSV 欄位格式</title>
+        <columns>
+          ```
+          group_id,             # 團購 ID
+          group_name,           # 團購名稱
+          participant_id,       # 參與者 ID
+          nickname,             # 暱稱
+          user_id,              # 用戶 ID（可能為空）
+          item_name,            # 品項名稱
+          qty,                  # 數量
+          unit_price_before,    # 折扣前單價
+          option_summary,       # 選項摘要（如：辣味/辣美乃滋）
+          discounts_applied,    # 適用的折扣名稱
+          discount_amount,      # 折扣金額
+          line_total,           # 行項小計
+          cart_total,           # 購物車總計
+          cart_status,          # 購物車狀態
+          modified_by_owner,    # 是否被團主修改
+          rejected_count,       # 被駁回次數
+          submitted_at,         # 提交時間
+          as_of,                # 快照時間（進行中）
+          closed_at,            # 結團時間（最終版）
+          final                 # 是否為最終版
+          ```
+        </columns>
+        <example>
+          ```csv
+          group_id,group_name,participant_id,nickname,item_name,qty,unit_price_before,option_summary,discounts_applied,discount_amount,line_total,cart_total,cart_status,modified_by_owner,final
+          g_001,週五午餐,p_001,小明,經典雞腿堡,2,12000,辣味/辣美乃滋,漢堡可樂組合,4000,20000,25000,locked,false,true
+          g_001,週五午餐,p_001,小明,可樂,2,3000,,漢堡可樂組合,1000,5000,25000,locked,false,true
+          g_001,週五午餐,p_002,小華,薯條,1,4500,大份,,0,6500,6500,locked,false,true
+          ```
+        </example>
+      </csv_format>
+
+      <export_ui>
+        <title>匯出介面</title>
+        <route>/dashboard/groups/[id]</route>
+        <ui_components>
+          ```
+          匯出報表
+          ──────────────────────────────────────
+
+          匯出類型:
+          ◉ 最終結算（僅已鎖定）
+          ○ 當前快照（含未鎖定）
+
+          包含欄位:
+          ☑ 參與者資訊
+          ☑ 品項明細
+          ☑ 折扣分攤
+          ☐ 修改記錄
+
+          [匯出 CSV] [預覽]
+          ```
+        </ui_components>
+        <preview_table>
+          - 匯出前可預覽表格內容
+          - 支援排序和篩選
+          - 顯示總計行
+        </preview_table>
+      </export_ui>
+
+      <api>
+        GET /functions/v1/export_csv
+        ?group_buy_id=uuid
+        &final=true|false
+        &by=participant
+
+        Response: text/csv (streaming)
+      </api>
+    </csv_export>
+
+    <!-- ============================================ -->
+    <!-- SECTION 11: 購物車版本管理 -->
+    <!-- ============================================ -->
+
+    <cart_version_management>
+      <title>購物車版本管理</title>
+      <description>
+        追蹤購物車的每次變更，支援版本比較和審計追溯。
+        每次提交或團主修改都會產生新的 cart_version。
+      </description>
+
+      <version_creation>
+        <title>版本產生時機</title>
+        <triggers>
+          - 參與者提交購物車（submit_cart）
+          - 團主修改購物車（owner_modify_cart）
+          - 團主鎖定購物車（lock_cart）
+        </triggers>
+        <version_data>
+          ```typescript
+          interface CartVersion {
+            id: string;
+            cart_id: string;
+            created_by_role: 'participant' | 'owner';
+            items_json: CartLine[];       // 行項快照
+            price_breakdown_json: {
+              lines_total: number;        // 品項小計
+              discounts: Discount[];      // 折扣明細
+              discount_total: number;     // 折扣總計
+              final_total: number;        // 最終金額
+            };
+            rule_apps_json: RuleApplication[];  // 規則應用記錄
+            created_at: string;
+          }
+          ```
+        </version_data>
+      </version_creation>
+
+      <version_history_ui>
+        <title>版本歷史介面</title>
+        <route>/dashboard/groups/[id]/carts/[cart_id]/history</route>
+        <ui_structure>
+          ```
+          購物車歷史 - 小明
+          ──────────────────────────────────────
+
+          v3 (最新)  2025-01-01 15:30  團主修改
+          │  修改原因: 客戶要求加一份薯條
+          │
+          v2         2025-01-01 14:00  參與者提交
+          │
+          v1         2025-01-01 13:30  參與者提交
+               被駁回: 請確認可樂是否要加冰
+
+          [比較版本]
+          ```
+        </ui_structure>
+        <features>
+          - 顯示所有版本時間線
+          - 標記操作者（參與者/團主）
+          - 顯示修改原因（若有）
+          - 顯示駁回原因（若有）
+        </features>
+      </version_history_ui>
+
+      <version_comparison>
+        <title>版本比較</title>
+        <diff_display>
+          ```
+          版本比較: v2 → v3
+          ──────────────────────────────────────
+
+          變更項目:
+          + 薯條 × 1 (+$65)          [新增]
+          ○ 經典雞腿堡 × 2 ($240)    [未變更]
+          ○ 可樂 × 2 ($60)           [未變更]
+
+          金額變更:
+          小計:  $300 → $365  (+$65)
+          折扣:  -$50 → -$50  (不變)
+          合計:  $250 → $315  (+$65)
+          ```
+        </diff_display>
+        <features>
+          - 並排比較兩個版本
+          - 高亮新增/刪除/修改的項目
+          - 顯示金額變化
+        </features>
+      </version_comparison>
+
+      <change_log>
+        <title>變更日誌</title>
+        <data_structure>
+          ```typescript
+          interface CartChangeLog {
+            id: string;
+            cart_id: string;
+            actor_id: string;           // 操作者 ID
+            actor_role: 'participant' | 'owner';
+            action: 'submit' | 'modify' | 'reject' | 'lock';
+            reason?: string;            // 修改/駁回原因
+            before_version_id?: string;
+            after_version_id?: string;
+            created_at: string;
+          }
+          ```
+        </data_structure>
+        <audit_trail>
+          - 所有操作留下記錄
+          - 包含操作者身份
+          - 記錄前後版本關聯
+          - 支援查詢和匯出
+        </audit_trail>
+      </change_log>
+    </cart_version_management>
+
+    <!-- ============================================ -->
+    <!-- SECTION 12: 即時更新 (P3) -->
+    <!-- ============================================ -->
+
+    <realtime_updates>
+      <title>即時更新系統 (Supabase Realtime)</title>
+      <priority>P3</priority>
+      <description>
+        整合 Supabase Realtime 功能，讓團購參與者和團主能即時看到狀態變更，
+        提升協作體驗和資訊同步性。
+      </description>
+
+      <technology>
+        <provider>Supabase Realtime</provider>
+        <protocol>WebSocket (Phoenix Channels)</protocol>
+        <features>
+          - Postgres Changes (CDC)
+          - Broadcast (custom events)
+          - Presence (online status)
+        </features>
+      </technology>
+
+      <cart_changes>
+        <title>購物車變更即時通知</title>
+        <description>
+          當購物車狀態變更時，即時通知相關用戶。
+        </description>
+        <events>
+          - cart_submitted: 參與者提交購物車
+          - cart_modified: 團主修改購物車
+          - cart_rejected: 購物車被駁回
+          - cart_locked: 購物車被鎖定
+        </events>
+        <implementation>
+          ```typescript
+          // hooks/useCartRealtime.ts
+          import { useEffect } from 'react';
+          import { createClient } from '@/lib/supabase/client';
+
+          export function useCartRealtime(
+            groupBuyId: string,
+            onCartChange: (payload: CartChangePayload) => void
+          ) {
+            useEffect(() => {
+              const supabase = createClient();
+
+              const channel = supabase
+                .channel(`group_buy:${groupBuyId}`)
+                .on(
+                  'postgres_changes',
+                  {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'cart',
+                    filter: `group_buy_id=eq.${groupBuyId}`
+                  },
+                  (payload) => {
+                    onCartChange({
+                      type: 'cart_update',
+                      cartId: payload.new.id,
+                      oldStatus: payload.old.status,
+                      newStatus: payload.new.status,
+                      participantId: payload.new.participant_id
+                    });
+                  }
+                )
+                .subscribe();
+
+              return () => {
+                supabase.removeChannel(channel);
+              };
+            }, [groupBuyId, onCartChange]);
+          }
+          ```
+        </implementation>
+        <ui_notifications>
+          - Toast 通知（非阻塞）
+          - 狀態標籤即時更新
+          - 列表項目高亮動畫（新變更）
+        </ui_notifications>
+      </cart_changes>
+
+      <group_buy_status>
+        <title>團購狀態變更通知</title>
+        <description>
+          當團購狀態變更時，即時通知所有參與者。
+        </description>
+        <events>
+          - group_buy_opened: 團購開始（starts_at 到達）
+          - group_buy_closing_soon: 即將結團（結團前 30 分鐘）
+          - group_buy_closed: 團購已結團
+        </events>
+        <implementation>
+          ```typescript
+          // hooks/useGroupBuyRealtime.ts
+          export function useGroupBuyRealtime(
+            groupBuyId: string,
+            onStatusChange: (status: GroupBuyStatus) => void
+          ) {
+            useEffect(() => {
+              const supabase = createClient();
+
+              const channel = supabase
+                .channel(`group_buy_status:${groupBuyId}`)
+                .on(
+                  'postgres_changes',
+                  {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'group_buy',
+                    filter: `id=eq.${groupBuyId}`
+                  },
+                  (payload) => {
+                    if (payload.old.status !== payload.new.status) {
+                      onStatusChange(payload.new.status);
+                    }
+                  }
+                )
+                .subscribe();
+
+              return () => {
+                supabase.removeChannel(channel);
+              };
+            }, [groupBuyId, onStatusChange]);
+          }
+          ```
+        </implementation>
+        <ui_feedback>
+          - 全頁 Banner 通知（結團通知）
+          - 倒數計時器自動更新
+          - 狀態 Badge 即時變色
+        </ui_feedback>
+      </group_buy_status>
+
+      <participant_presence>
+        <title>參與者加入/離開通知</title>
+        <description>
+          顯示目前正在瀏覽團購頁面的參與者，增加協作感。
+        </description>
+        <features>
+          - 顯示在線人數
+          - 顯示正在編輯購物車的用戶
+          - 新參與者加入提示
+        </features>
+        <implementation>
+          ```typescript
+          // hooks/useParticipantPresence.ts
+          export function useParticipantPresence(groupBuyId: string) {
+            const [onlineUsers, setOnlineUsers] = useState&lt;PresenceUser[]&gt;([]);
+
+            useEffect(() => {
+              const supabase = createClient();
+
+              const channel = supabase
+                .channel(`presence:${groupBuyId}`)
+                .on('presence', { event: 'sync' }, () => {
+                  const state = channel.presenceState();
+                  const users = Object.values(state).flat() as PresenceUser[];
+                  setOnlineUsers(users);
+                })
+                .on('presence', { event: 'join' }, ({ newPresences }) => {
+                  // 新用戶加入
+                })
+                .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+                  // 用戶離開
+                })
+                .subscribe(async (status) => {
+                  if (status === 'SUBSCRIBED') {
+                    await channel.track({
+                      participantId: currentParticipantId,
+                      nickname: currentNickname,
+                      online_at: new Date().toISOString()
+                    });
+                  }
+                });
+
+              return () => {
+                supabase.removeChannel(channel);
+              };
+            }, [groupBuyId]);
+
+            return { onlineUsers };
+          }
+          ```
+        </implementation>
+        <ui_display>
+          ```
+          目前在線
+          ──────────────────────────────────────
+          🟢 小明 (正在編輯)
+          🟢 小華
+          🟢 小美
+          ──────────────────────────────────────
+          共 3 人在線
+          ```
+        </ui_display>
+      </participant_presence>
+
+      <optimistic_sync>
+        <title>樂觀更新與衝突處理</title>
+        <description>
+          當本地變更與 Realtime 更新衝突時的處理策略。
+        </description>
+        <strategies>
+          - 本地優先：用戶自己的購物車變更優先顯示
+          - 伺服器權威：最終以伺服器狀態為準
+          - 衝突提示：當偵測到衝突時顯示提示
+        </strategies>
+        <conflict_resolution>
+          ```typescript
+          // 當收到 Realtime 更新時
+          function handleRealtimeUpdate(payload: CartChangePayload) {
+            // 如果是自己的操作，忽略（已經 optimistic 更新）
+            if (payload.triggeredBy === currentUserId) return;
+
+            // 如果有本地未儲存的變更，顯示衝突提示
+            if (hasLocalChanges) {
+              showConflictDialog({
+                message: '團主已修改您的購物車，是否要載入最新版本？',
+                onAccept: () => reloadCart(),
+                onReject: () => keepLocalChanges()
+              });
+              return;
+            }
+
+            // 直接更新
+            mutateCart(payload.newData);
+          }
+          ```
+        </conflict_resolution>
+      </optimistic_sync>
+    </realtime_updates>
+
+    <!-- ============================================ -->
+    <!-- SECTION 13: 媒體上傳完善 (P4) -->
+    <!-- ============================================ -->
+
+    <media_upload_enhancement>
+      <title>媒體上傳 UI 完善</title>
+      <priority>P4</priority>
+      <description>
+        提升圖片上傳體驗，支援拖拽、進度顯示、預覽裁切等進階功能。
+      </description>
+
+      <drag_and_drop>
+        <title>拖拽上傳支援</title>
+        <features>
+          - 拖放區域視覺反饋（虛線框、高亮）
+          - 支援多檔案拖放
+          - 檔案類型過濾（僅圖片）
+          - 檔案大小限制提示（10MB）
+        </features>
+        <implementation>
+          ```typescript
+          // components/ui/image-dropzone.tsx
+          'use client';
+
+          import { useDropzone } from 'react-dropzone';
+          import { cn } from '@/lib/utils';
+
+          interface ImageDropzoneProps {
+            onFilesAccepted: (files: File[]) => void;
+            maxSize?: number;  // bytes, default 10MB
+            accept?: string[]; // MIME types
+            multiple?: boolean;
+          }
+
+          export function ImageDropzone({
+            onFilesAccepted,
+            maxSize = 10 * 1024 * 1024,
+            accept = ['image/jpeg', 'image/png', 'image/webp'],
+            multiple = false
+          }: ImageDropzoneProps) {
+            const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
+              onDrop: onFilesAccepted,
+              accept: accept.reduce((acc, type) => ({ ...acc, [type]: [] }), {}),
+              maxSize,
+              multiple
+            });
+
+            return (
+              &lt;div
+                {...getRootProps()}
+                className={cn(
+                  'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
+                  isDragActive && 'border-primary bg-primary/5',
+                  isDragReject && 'border-destructive bg-destructive/5',
+                  !isDragActive && 'border-muted-foreground/25 hover:border-primary/50'
+                )}
+              &gt;
+                &lt;input {...getInputProps()} /&gt;
+                {isDragActive ? (
+                  &lt;p&gt;放開以上傳圖片&lt;/p&gt;
+                ) : (
+                  &lt;p&gt;拖拽圖片至此處，或點擊選擇檔案&lt;/p&gt;
+                )}
+                &lt;p className="text-sm text-muted-foreground mt-2"&gt;
+                  支援 JPG、PNG、WebP，最大 10MB
+                &lt;/p&gt;
+              &lt;/div&gt;
+            );
+          }
+          ```
+        </implementation>
+      </drag_and_drop>
+
+      <upload_progress>
+        <title>上傳進度顯示</title>
+        <features>
+          - 單檔進度條
+          - 批次上傳總進度
+          - 上傳速度顯示
+          - 預估剩餘時間
+          - 取消上傳功能
+        </features>
+        <implementation>
+          ```typescript
+          // hooks/useImageUpload.ts
+          interface UploadProgress {
+            fileId: string;
+            fileName: string;
+            progress: number;     // 0-100
+            bytesUploaded: number;
+            totalBytes: number;
+            status: 'pending' | 'uploading' | 'processing' | 'complete' | 'error';
+            error?: string;
+          }
+
+          export function useImageUpload(scope: MediaScope) {
+            const [uploads, setUploads] = useState&lt;UploadProgress[]&gt;([]);
+
+            async function uploadFile(file: File, targetId: string) {
+              const fileId = crypto.randomUUID();
+
+              // 初始化進度
+              setUploads(prev => [...prev, {
+                fileId,
+                fileName: file.name,
+                progress: 0,
+                bytesUploaded: 0,
+                totalBytes: file.size,
+                status: 'pending'
+              }]);
+
+              try {
+                // 1. 取得簽名 URL
+                const { signedUrl, path } = await createSignedUploadUrl(scope, targetId);
+
+                // 2. 使用 XHR 上傳（支援進度追蹤）
+                await uploadWithProgress(signedUrl, file, (progress) => {
+                  setUploads(prev => prev.map(u =>
+                    u.fileId === fileId
+                      ? { ...u, progress, bytesUploaded: (progress / 100) * file.size, status: 'uploading' }
+                      : u
+                  ));
+                });
+
+                // 3. 發布媒體
+                setUploads(prev => prev.map(u =>
+                  u.fileId === fileId ? { ...u, status: 'processing' } : u
+                ));
+                await publishMedia(path, scope, targetId);
+
+                // 4. 完成
+                setUploads(prev => prev.map(u =>
+                  u.fileId === fileId ? { ...u, status: 'complete', progress: 100 } : u
+                ));
+              } catch (error) {
+                setUploads(prev => prev.map(u =>
+                  u.fileId === fileId ? { ...u, status: 'error', error: error.message } : u
+                ));
+              }
+            }
+
+            function cancelUpload(fileId: string) {
+              // 取消上傳邏輯
+            }
+
+            return { uploads, uploadFile, cancelUpload };
+          }
+          ```
+        </implementation>
+        <ui_display>
+          ```
+          上傳進度
+          ──────────────────────────────────────
+          📷 burger.jpg
+          ████████████░░░░░░░░ 60%  2.4 MB / 4 MB
+          ⏱️ 剩餘約 3 秒                    [取消]
+
+          📷 fries.png
+          ████████████████████ 100% ✅ 完成
+          ──────────────────────────────────────
+          ```
+        </ui_display>
+      </upload_progress>
+
+      <image_preview_crop>
+        <title>圖片預覽與裁切</title>
+        <library>react-image-crop 或 react-easy-crop</library>
+        <features>
+          - 上傳前預覽
+          - 自由裁切或固定比例（1:1、4:3、16:9）
+          - 旋轉功能
+          - 縮放調整
+          - 即時預覽裁切結果
+        </features>
+        <implementation>
+          ```typescript
+          // components/ui/image-cropper.tsx
+          'use client';
+
+          import Cropper from 'react-easy-crop';
+          import { useState, useCallback } from 'react';
+
+          interface ImageCropperProps {
+            imageSrc: string;
+            aspectRatio?: number;  // 1 for square, 4/3, 16/9, etc.
+            onCropComplete: (croppedImage: Blob) => void;
+            onCancel: () => void;
+          }
+
+          export function ImageCropper({
+            imageSrc,
+            aspectRatio = 1,
+            onCropComplete,
+            onCancel
+          }: ImageCropperProps) {
+            const [crop, setCrop] = useState({ x: 0, y: 0 });
+            const [zoom, setZoom] = useState(1);
+            const [rotation, setRotation] = useState(0);
+            const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+
+            const onCropChange = useCallback((location) => setCrop(location), []);
+            const onZoomChange = useCallback((zoom) => setZoom(zoom), []);
+
+            const handleComplete = async () => {
+              const croppedImage = await getCroppedImg(imageSrc, croppedAreaPixels, rotation);
+              onCropComplete(croppedImage);
+            };
+
+            return (
+              &lt;div className="relative h-96"&gt;
+                &lt;Cropper
+                  image={imageSrc}
+                  crop={crop}
+                  zoom={zoom}
+                  rotation={rotation}
+                  aspect={aspectRatio}
+                  onCropChange={onCropChange}
+                  onZoomChange={onZoomChange}
+                  onCropComplete={(_, croppedAreaPixels) =>
+                    setCroppedAreaPixels(croppedAreaPixels)
+                  }
+                /&gt;
+                &lt;div className="absolute bottom-4 left-0 right-0 flex justify-center gap-4"&gt;
+                  &lt;Slider value={zoom} onChange={setZoom} min={1} max={3} step={0.1} /&gt;
+                  &lt;Button onClick={() => setRotation(r => r + 90)}&gt;旋轉&lt;/Button&gt;
+                &lt;/div&gt;
+                &lt;div className="flex justify-end gap-2 mt-4"&gt;
+                  &lt;Button variant="outline" onClick={onCancel}&gt;取消&lt;/Button&gt;
+                  &lt;Button onClick={handleComplete}&gt;確認裁切&lt;/Button&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            );
+          }
+          ```
+        </implementation>
+        <aspect_ratio_presets>
+          - 正方形 (1:1): 品項縮圖
+          - 橫幅 (4:3): 品項大圖
+          - 寬幅 (16:9): Banner 圖片
+          - 自由裁切: 用戶自訂
+        </aspect_ratio_presets>
+      </image_preview_crop>
+
+      <batch_upload>
+        <title>批次上傳支援</title>
+        <features>
+          - 一次選擇多張圖片
+          - 佇列管理（最多同時 3 個上傳）
+          - 批次進度顯示
+          - 失敗重試機制
+          - 批次取消功能
+        </features>
+        <implementation>
+          ```typescript
+          // hooks/useBatchUpload.ts
+          export function useBatchUpload(scope: MediaScope) {
+            const [queue, setQueue] = useState&lt;UploadQueueItem[]&gt;([]);
+            const [concurrency] = useState(3);
+
+            async function addToQueue(files: File[], targetId: string) {
+              const items = files.map(file => ({
+                id: crypto.randomUUID(),
+                file,
+                targetId,
+                status: 'queued' as const
+              }));
+              setQueue(prev => [...prev, ...items]);
+              processQueue();
+            }
+
+            async function processQueue() {
+              const pending = queue.filter(i => i.status === 'queued');
+              const uploading = queue.filter(i => i.status === 'uploading');
+
+              if (uploading.length >= concurrency || pending.length === 0) return;
+
+              const next = pending.slice(0, concurrency - uploading.length);
+              for (const item of next) {
+                uploadItem(item);
+              }
+            }
+
+            return {
+              queue,
+              addToQueue,
+              cancelAll: () => setQueue([]),
+              retryFailed: () => { /* retry logic */ }
+            };
+          }
+          ```
+        </implementation>
+      </batch_upload>
+
+      <media_management>
+        <title>媒體管理整合</title>
+        <description>
+          在菜單編輯頁整合媒體管理功能，方便瀏覽和管理已上傳的圖片。
+        </description>
+        <features>
+          - 已上傳圖片庫
+          - 圖片搜尋（按名稱、上傳日期）
+          - 圖片刪除（含確認）
+          - 圖片替換（保留 ID，更新檔案）
+          - 縮圖預覽（_sm、_md、_lg）
+        </features>
+        <ui_gallery>
+          ```
+          媒體庫
+          ──────────────────────────────────────
+          [搜尋...]              [上傳新圖片]
+
+          ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐
+          │ 🍔  │ │ 🍟  │ │ 🥤  │ │ 🌮  │
+          │     │ │     │ │     │ │     │
+          └─────┘ └─────┘ └─────┘ └─────┘
+          burger   fries    cola    taco
+          2 MB     1.5 MB   0.8 MB  1.2 MB
+
+          ──────────────────────────────────────
+          已使用 5.5 MB / 100 MB
+          ```
+        </ui_gallery>
+      </media_management>
+    </media_upload_enhancement>
+
+    <!-- ============================================ -->
+    <!-- SECTION 14: 完整 RLS 政策 (P5) -->
+    <!-- ============================================ -->
+
+    <rls_policies>
+      <title>完整 Row Level Security 政策</title>
+      <priority>P5</priority>
+      <description>
+        為所有資料表設定完整的 RLS 政策，確保資料安全和存取控制。
+        目前僅 participant 和 cart 有完整 RLS，其他表格待補充。
+      </description>
+
+      <policy_overview>
+        <title>RLS 政策總覽</title>
+        <principles>
+          - 最小權限原則：僅授予必要的存取權限
+          - 公開讀取：菜單等公開資料允許匿名讀取
+          - Owner 寫入：僅資源擁有者可修改
+          - 參與者可見：團購相關資料僅參與者和團主可見
+        </principles>
+        <policy_matrix>
+          ```
+          資料表                    │ SELECT      │ INSERT   │ UPDATE   │ DELETE
+          ──────────────────────────┼─────────────┼──────────┼──────────┼─────────
+          menu                      │ 公開        │ 登入用戶 │ owner    │ owner
+          menu_item                 │ 公開        │ owner    │ owner    │ owner
+          option_group              │ 公開        │ owner    │ owner    │ owner
+          option_choice             │ 公開        │ owner    │ owner    │ owner
+          rule                      │ 公開        │ owner    │ owner    │ owner
+          rule_target_*             │ 公開        │ owner    │ owner    │ owner
+          group_buy                 │ 公開        │ 登入用戶 │ owner    │ owner
+          participant               │ 自己/團主   │ 公開     │ 自己     │ -
+          cart                      │ 自己/團主   │ 系統     │ 自己/團主│ -
+          cart_version              │ 自己/團主   │ 系統     │ -        │ -
+          cart_change_log           │ 自己/團主   │ 系統     │ -        │ -
+          rule_application          │ 自己/團主   │ 系統     │ -        │ -
+          rule_application_line     │ 自己/團主   │ 系統     │ -        │ -
+          media                     │ 公開        │ 登入用戶 │ owner    │ owner
+          menu_snapshot             │ 參與者/團主 │ 系統     │ -        │ -
+          ```
+        </policy_matrix>
+      </policy_overview>
+
+      <menu_policies>
+        <title>菜單相關 RLS</title>
+        <tables>menu, menu_item, option_group, option_choice</tables>
+        <implementation>
+          ```sql
+          -- menu 表 RLS
+          ALTER TABLE menu ENABLE ROW LEVEL SECURITY;
+
+          -- 公開讀取
+          CREATE POLICY "menu_select_public" ON menu
+            FOR SELECT USING (true);
+
+          -- 登入用戶可建立
+          CREATE POLICY "menu_insert_authenticated" ON menu
+            FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+          -- 僅 owner 可修改
+          CREATE POLICY "menu_update_owner" ON menu
+            FOR UPDATE USING (auth.uid() = owner_id);
+
+          -- 僅 owner 可刪除
+          CREATE POLICY "menu_delete_owner" ON menu
+            FOR DELETE USING (auth.uid() = owner_id);
+
+          -- menu_item 表 RLS
+          ALTER TABLE menu_item ENABLE ROW LEVEL SECURITY;
+
+          -- 公開讀取
+          CREATE POLICY "menu_item_select_public" ON menu_item
+            FOR SELECT USING (true);
+
+          -- 僅菜單 owner 可建立
+          CREATE POLICY "menu_item_insert_owner" ON menu_item
+            FOR INSERT WITH CHECK (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = menu_item.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- 僅菜單 owner 可修改
+          CREATE POLICY "menu_item_update_owner" ON menu_item
+            FOR UPDATE USING (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = menu_item.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- 僅菜單 owner 可刪除
+          CREATE POLICY "menu_item_delete_owner" ON menu_item
+            FOR DELETE USING (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = menu_item.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- option_group 和 option_choice 類似（透過 menu_item 關聯檢查）
+          ```
+        </implementation>
+      </menu_policies>
+
+      <rule_policies>
+        <title>規則相關 RLS</title>
+        <tables>rule, rule_target_item, rule_target_choice</tables>
+        <implementation>
+          ```sql
+          -- rule 表 RLS
+          ALTER TABLE rule ENABLE ROW LEVEL SECURITY;
+
+          -- 公開讀取（用於計價）
+          CREATE POLICY "rule_select_public" ON rule
+            FOR SELECT USING (true);
+
+          -- 僅菜單 owner 可建立
+          CREATE POLICY "rule_insert_owner" ON rule
+            FOR INSERT WITH CHECK (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = rule.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- 僅菜單 owner 可修改
+          CREATE POLICY "rule_update_owner" ON rule
+            FOR UPDATE USING (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = rule.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- 僅菜單 owner 可刪除
+          CREATE POLICY "rule_delete_owner" ON rule
+            FOR DELETE USING (
+              EXISTS (
+                SELECT 1 FROM menu
+                WHERE menu.id = rule.menu_id
+                  AND menu.owner_id = auth.uid()
+              )
+            );
+
+          -- rule_target_item 和 rule_target_choice 透過 rule 關聯檢查
+          ```
+        </implementation>
+      </rule_policies>
+
+      <cart_version_policies>
+        <title>購物車版本相關 RLS</title>
+        <tables>cart_version, cart_change_log, rule_application, rule_application_line</tables>
+        <implementation>
+          ```sql
+          -- cart_version 表 RLS
+          ALTER TABLE cart_version ENABLE ROW LEVEL SECURITY;
+
+          -- 購物車擁有者或團主可讀取
+          CREATE POLICY "cart_version_select" ON cart_version
+            FOR SELECT USING (
+              EXISTS (
+                SELECT 1 FROM cart
+                JOIN participant ON cart.participant_id = participant.id
+                JOIN group_buy ON cart.group_buy_id = group_buy.id
+                WHERE cart.id = cart_version.cart_id
+                  AND (
+                    -- 參與者本人（登入）
+                    participant.user_id = auth.uid()
+                    -- 參與者本人（匿名）
+                    OR participant.anonymous_device_id = current_setting('request.headers', true)::json->>'x-device-id'
+                    -- 團主
+                    OR group_buy.owner_id = auth.uid()
+                  )
+              )
+            );
+
+          -- 僅系統可建立（透過 Edge Functions）
+          CREATE POLICY "cart_version_insert_system" ON cart_version
+            FOR INSERT WITH CHECK (false);  -- 由 service_role 繞過
+
+          -- cart_change_log 類似邏輯
+          -- rule_application 和 rule_application_line 類似邏輯
+          ```
+        </implementation>
+      </cart_version_policies>
+
+      <service_role_bypass>
+        <title>Service Role 繞過機制</title>
+        <description>
+          Edge Functions 使用 service_role 存取資料庫，可繞過 RLS。
+          用於系統自動操作（如建立 cart_version、rule_application 等）。
+        </description>
+        <implementation>
+          ```typescript
+          // Edge Function 中使用 service_role client
+          import { createClient } from '@supabase/supabase-js';
+
+          const supabaseAdmin = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+          );
+
+          // 使用 admin client 可繞過 RLS
+          const { data } = await supabaseAdmin
+            .from('cart_version')
+            .insert({ ... });
+          ```
+        </implementation>
+        <security_notes>
+          - service_role key 僅在伺服器端使用
+          - 永不暴露給前端
+          - Edge Functions 內部驗證權限後才操作
+        </security_notes>
+      </service_role_bypass>
+
+      <testing_rls>
+        <title>RLS 測試策略</title>
+        <test_cases>
+          - 匿名用戶只能讀取公開菜單
+          - 登入用戶可建立自己的菜單
+          - 非 owner 無法修改他人菜單
+          - 參與者只能看到自己的購物車
+          - 團主可以看到所有參與者的購物車
+          - 匿名用戶無法直接操作 cart_version
+        </test_cases>
+        <implementation>
+          ```typescript
+          // tests/rls.test.ts
+          describe('RLS Policies', () => {
+            it('should allow public read on menu', async () => {
+              const anonClient = createAnonClient();
+              const { data, error } = await anonClient
+                .from('menu')
+                .select('*');
+              expect(error).toBeNull();
+              expect(data).toBeDefined();
+            });
+
+            it('should deny non-owner update on menu', async () => {
+              const otherUserClient = createAuthClient(otherUserId);
+              const { error } = await otherUserClient
+                .from('menu')
+                .update({ name: 'Hacked' })
+                .eq('id', menuId);
+              expect(error).toBeDefined();
+              expect(error.code).toBe('42501'); // insufficient_privilege
+            });
+
+            it('should allow owner to view participant cart', async () => {
+              const ownerClient = createAuthClient(ownerId);
+              const { data, error } = await ownerClient
+                .from('cart')
+                .select('*')
+                .eq('group_buy_id', groupBuyId);
+              expect(error).toBeNull();
+              expect(data.length).toBeGreaterThan(0);
+            });
+          });
+          ```
+        </implementation>
+      </testing_rls>
+    </rls_policies>
   </core_features>
 
   <database_schema>
-    <tables>
-      <users>
-        - id, email, name, avatar_url
-        - created_at, last_login
-        - preferences (JSON: theme, font_size, etc.)
-        - custom_instructions
-      </users>
-
-      <projects>
-        - id, user_id, name, description, color
-        - custom_instructions, knowledge_base_path
-        - created_at, updated_at
-        - is_archived, is_pinned
-      </projects>
-
-      <conversations>
-        - id, user_id, project_id, title
-        - model, created_at, updated_at, last_message_at
-        - is_archived, is_pinned, is_deleted
-        - settings (JSON: temperature, max_tokens, etc.)
-        - token_count, message_count
-      </conversations>
-
-      <messages>
-        - id, conversation_id, role (user/assistant/system)
-        - content, created_at, edited_at
-        - tokens, finish_reason
-        - images (JSON array of image data)
-        - parent_message_id (for branching)
-      </messages>
-
-      <artifacts>
-        - id, message_id, conversation_id
-        - type (code/html/svg/react/mermaid/text)
-        - title, identifier, language
-        - content, version
-        - created_at, updated_at
-      </artifacts>
-
-      <shared_conversations>
-        - id, conversation_id, share_token
-        - created_at, expires_at, view_count
-        - is_public
-      </shared_conversations>
-
-      <prompt_library>
-        - id, user_id, title, description
-        - prompt_template, category, tags (JSON)
-        - is_public, usage_count
-        - created_at, updated_at
-      </prompt_library>
-
-      <conversation_folders>
-        - id, user_id, project_id, name, parent_folder_id
-        - created_at, position
-      </conversation_folders>
-
-      <conversation_folder_items>
-        - id, folder_id, conversation_id
-      </conversation_folder_items>
-
-      <usage_tracking>
-        - id, user_id, conversation_id, message_id
-        - model, input_tokens, output_tokens
-        - cost_estimate, created_at
-      </usage_tracking>
-
-      <api_keys>
-        - id, user_id, key_name, api_key_hash
-        - created_at, last_used_at
-        - is_active
-      </api_keys>
-    </tables>
+    <new_fields>
+      <menu_item>
+        - description: TEXT (nullable) - 品項描述
+        - category_id: UUID (FK to menu_category) - 分類 ID
+      </menu_item>
+      <menu_category>
+        - id: UUID
+        - menu_id: UUID (FK to menu)
+        - name: VARCHAR(64)
+        - display_order: INT
+        - created_at: TIMESTAMP
+      </menu_category>
+    </new_fields>
+    <existing_tables>
+      參考 spec.md Section 2 的完整資料模型
+    </existing_tables>
   </database_schema>
 
   <api_endpoints_summary>
-    <authentication>
-      - POST /api/auth/login
-      - POST /api/auth/logout
-      - GET /api/auth/me
-      - PUT /api/auth/profile
-    </authentication>
-
-    <conversations>
-      - GET /api/conversations
-      - POST /api/conversations
-      - GET /api/conversations/:id
-      - PUT /api/conversations/:id
-      - DELETE /api/conversations/:id
-      - POST /api/conversations/:id/duplicate
-      - POST /api/conversations/:id/export
-      - PUT /api/conversations/:id/archive
-      - PUT /api/conversations/:id/pin
-      - POST /api/conversations/:id/branch
-    </conversations>
-
-    <messages>
-      - GET /api/conversations/:id/messages
-      - POST /api/conversations/:id/messages
-      - PUT /api/messages/:id
-      - DELETE /api/messages/:id
-      - POST /api/messages/:id/regenerate
-      - GET /api/messages/stream (SSE endpoint)
-    </messages>
-
-    <artifacts>
-      - GET /api/conversations/:id/artifacts
-      - GET /api/artifacts/:id
-      - PUT /api/artifacts/:id
-      - DELETE /api/artifacts/:id
-      - POST /api/artifacts/:id/fork
-      - GET /api/artifacts/:id/versions
-    </artifacts>
-
-    <projects>
-      - GET /api/projects
-      - POST /api/projects
-      - GET /api/projects/:id
-      - PUT /api/projects/:id
-      - DELETE /api/projects/:id
-      - POST /api/projects/:id/knowledge
-      - GET /api/projects/:id/conversations
-      - PUT /api/projects/:id/settings
-    </projects>
-
-    <sharing>
-      - POST /api/conversations/:id/share
-      - GET /api/share/:token
-      - DELETE /api/share/:token
-      - PUT /api/share/:token/settings
-    </sharing>
-
-    <prompts>
-      - GET /api/prompts/library
-      - POST /api/prompts/library
-      - GET /api/prompts/:id
-      - PUT /api/prompts/:id
-      - DELETE /api/prompts/:id
-      - GET /api/prompts/categories
-      - GET /api/prompts/examples
-    </prompts>
-
-    <search>
-      - GET /api/search/conversations?q=query
-      - GET /api/search/messages?q=query
-      - GET /api/search/artifacts?q=query
-      - GET /api/search/prompts?q=query
-    </search>
-
-    <folders>
-      - GET /api/folders
-      - POST /api/folders
-      - PUT /api/folders/:id
-      - DELETE /api/folders/:id
-      - POST /api/folders/:id/items
-      - DELETE /api/folders/:id/items/:conversationId
-    </folders>
-
-    <usage>
-      - GET /api/usage/daily
-      - GET /api/usage/monthly
-      - GET /api/usage/by-model
-      - GET /api/usage/conversations/:id
-    </usage>
-
-    <settings>
-      - GET /api/settings
-      - PUT /api/settings
-      - GET /api/settings/custom-instructions
-      - PUT /api/settings/custom-instructions
-    </settings>
-
-    <claude_api>
-      - POST /api/claude/chat (proxy to Claude API)
-      - POST /api/claude/chat/stream (streaming proxy)
-      - GET /api/claude/models
-      - POST /api/claude/images/upload
-    </claude_api>
+    <new_endpoints>
+      <batch_save>
+        POST /functions/v1/batch_save_menu
+        - 批次儲存菜單變更（原子性操作）
+      </batch_save>
+      <ai_generation>
+        POST /api/ai/generate-menu
+        - AI 菜單生成（streaming response）
+      </ai_generation>
+      <category_crud>
+        POST /functions/v1/create_category
+        PUT /functions/v1/update_category
+        DELETE /functions/v1/delete_category
+        GET /functions/v1/list_categories
+      </category_crud>
+    </new_endpoints>
+    <existing_endpoints>
+      參考 spec.md Section 6 的完整 API 列表
+    </existing_endpoints>
   </api_endpoints_summary>
-
-  <ui_layout>
-    <main_structure>
-      - Three-column layout: sidebar (conversations), main (chat), panel (artifacts)
-      - Collapsible sidebar with resize handle
-      - Responsive breakpoints: mobile (single column), tablet (two column), desktop (three column)
-      - Persistent header with project/model selector
-      - Bottom input area with send button and options
-    </main_structure>
-
-    <sidebar_left>
-      - New chat button (prominent)
-      - Project selector dropdown
-      - Search conversations input
-      - Conversations list (grouped by date: Today, Yesterday, Previous 7 days, etc.)
-      - Folder tree view (collapsible)
-      - Settings gear icon at bottom
-      - User profile at bottom
-    </sidebar_left>
-
-    <main_chat_area>
-      - Conversation title (editable inline)
-      - Model selector badge
-      - Message history (scrollable)
-      - Welcome screen for new conversations
-      - Suggested prompts (empty state)
-      - Input area with formatting toolbar
-      - Attachment button for images
-      - Send button with loading state
-      - Stop generation button
-    </main_chat_area>
-
-    <artifacts_panel>
-      - Artifact header with title and type badge
-      - Code editor or preview pane
-      - Tabs for multiple artifacts
-      - Full-screen toggle
-      - Download button
-      - Edit/Re-prompt button
-      - Version selector
-      - Close panel button
-    </artifacts_panel>
-
-    <modals_overlays>
-      - Settings modal (tabbed interface)
-      - Share conversation modal
-      - Export options modal
-      - Project settings modal
-      - Prompt library modal
-      - Command palette overlay
-      - Keyboard shortcuts reference
-    </modals_overlays>
-  </ui_layout>
-
-  <design_system>
-    <color_palette>
-      - Primary: Orange/amber accent (#CC785C claude-style)
-      - Background: White (light mode), Dark gray (#1A1A1A dark mode)
-      - Surface: Light gray (#F5F5F5 light), Darker gray (#2A2A2A dark)
-      - Text: Near black (#1A1A1A light), Off-white (#E5E5E5 dark)
-      - Borders: Light gray (#E5E5E5 light), Dark gray (#404040 dark)
-      - Code blocks: Monaco editor theme
-    </color_palette>
-
-    <typography>
-      - Sans-serif system font stack (Inter, SF Pro, Roboto, system-ui)
-      - Headings: font-semibold
-      - Body: font-normal, leading-relaxed
-      - Code: Monospace (JetBrains Mono, Consolas, Monaco)
-      - Message text: text-base (16px), comfortable line-height
-    </typography>
-
-    <components>
-      <message_bubble>
-        - User messages: Right-aligned, subtle background
-        - Assistant messages: Left-aligned, no background
-        - Markdown formatting with proper spacing
-        - Inline code with bg-gray-100 background
-        - Code blocks with syntax highlighting
-        - Copy button on code blocks
-      </message_bubble>
-
-      <buttons>
-        - Primary: Orange/amber background, white text, rounded
-        - Secondary: Border style with hover fill
-        - Icon buttons: Square with hover background
-        - Disabled state: Reduced opacity, no pointer events
-      </buttons>
-
-      <inputs>
-        - Rounded borders with focus ring
-        - Textarea auto-resize
-        - Placeholder text in gray
-        - Error states in red
-        - Character counter
-      </inputs>
-
-      <cards>
-        - Subtle border or shadow
-        - Rounded corners (8px)
-        - Padding: p-4 to p-6
-        - Hover state: slight shadow increase
-      </cards>
-    </components>
-
-    <animations>
-      - Smooth transitions (150-300ms)
-      - Fade in for new messages
-      - Slide in for sidebar
-      - Typing indicator animation
-      - Loading spinner for generation
-      - Skeleton loaders for content
-    </animations>
-  </design_system>
-
-  <key_interactions>
-    <message_flow>
-      1. User types message in input field
-      2. Optional: Attach images via button
-      3. Click send or press Enter
-      4. Message appears in chat immediately
-      5. Typing indicator shows while waiting
-      6. Response streams in word by word
-      7. Code blocks render with syntax highlighting
-      8. Artifacts detected and rendered in side panel
-      9. Message complete, enable regenerate option
-    </message_flow>
-
-    <artifact_flow>
-      1. Assistant generates artifact in response
-      2. Artifact panel slides in from right
-      3. Content renders (code with highlighting or live preview)
-      4. User can edit artifact inline
-      5. "Re-prompt" button to iterate with Claude
-      6. Download or copy artifact content
-      7. Full-screen mode for detailed work
-      8. Close panel to return to chat focus
-    </artifact_flow>
-
-    <conversation_management>
-      1. Click "New Chat" to start fresh conversation
-      2. Conversations auto-save with first message
-      3. Auto-generate title from first exchange
-      4. Click title to rename inline
-      5. Drag conversations into folders
-      6. Right-click for context menu (pin, archive, delete, export)
-      7. Search filters conversations in real-time
-      8. Click conversation to switch context
-    </conversation_management>
-  </key_interactions>
 
   <implementation_steps>
     <step number="1">
-      <title>Setup Project Foundation and Database</title>
+      <title>編輯器基礎架構</title>
       <tasks>
-        - Initialize Express server with SQLite database
-        - Set up Claude API client with streaming support
-        - Create database schema with migrations
-        - Implement authentication endpoints
-        - Set up basic CORS and middleware
-        - Create health check endpoint
+        - 實作 useEditorState hook
+        - 實作 useHistory hook (undo/redo)
+        - 實作 optimistic update utilities
+        - 建立 batch save API
       </tasks>
     </step>
 
     <step number="2">
-      <title>Build Core Chat Interface</title>
+      <title>菜單編輯器改善</title>
       <tasks>
-        - Create main layout with sidebar and chat area
-        - Implement message display with markdown rendering
-        - Add streaming message support with SSE
-        - Build input area with auto-resize textarea
-        - Add code block syntax highlighting
-        - Implement stop generation functionality
-        - Add typing indicators and loading states
+        - 建立巢狀樹狀編輯器組件
+        - 整合 @dnd-kit 拖拽排序
+        - 實作批次操作
+        - 新增 description 和 category 欄位
+        - 整合選項圖片上傳
       </tasks>
     </step>
 
     <step number="3">
-      <title>Conversation Management</title>
+      <title>規則編輯器 UI</title>
       <tasks>
-        - Create conversation list in sidebar
-        - Implement new conversation creation
-        - Add conversation switching
-        - Build conversation rename functionality
-        - Implement delete with confirmation
-        - Add conversation search
-        - Create conversation grouping by date
+        - 建立規則列表頁面
+        - 實作條件建構器（Visual Builder）
+        - 實作動作建構器
+        - 實作目標選擇器
+        - 實作規則預覽/測試功能
       </tasks>
     </step>
 
     <step number="4">
-      <title>Artifacts System</title>
+      <title>AI 菜單生成</title>
       <tasks>
-        - Build artifact detection from Claude responses
-        - Create artifact rendering panel
-        - Implement code artifact viewer
-        - Add HTML/SVG live preview
-        - Build artifact editing interface
-        - Add artifact versioning
-        - Implement full-screen artifact view
+        - 設定 Vercel AI SDK + Google provider
+        - 實作 streaming API route
+        - 建立文字輸入 UI
+        - 建立圖片上傳 UI
+        - 實作生成結果預覽/編輯
+        - 整合儲存流程
       </tasks>
     </step>
 
     <step number="5">
-      <title>Projects and Organization</title>
+      <title>團主操作 UI</title>
       <tasks>
-        - Create projects CRUD endpoints
-        - Build project selector UI
-        - Implement project-specific custom instructions
-        - Add folder system for conversations
-        - Create drag-and-drop organization
-        - Build project settings panel
+        - 實作 owner_modify_cart UI
+        - 實作 lock_cart 確認對話框
+        - 實作變更日誌顯示
+        - 實作 fork_menu UI
       </tasks>
     </step>
 
     <step number="6">
-      <title>Advanced Features</title>
+      <title>UI 完善</title>
       <tasks>
-        - Add model selection dropdown
-        - Implement temperature and parameter controls
-        - Build image upload functionality
-        - Create message editing and regeneration
-        - Add conversation branching
-        - Implement export functionality
+        - 統一 loading states
+        - 統一 error handling
+        - 價格工具函數整合
+        - 響應式優化
       </tasks>
     </step>
 
     <step number="7">
-      <title>Settings and Customization</title>
+      <title>團購流程 UI</title>
       <tasks>
-        - Build settings modal with tabs
-        - Implement theme switching (light/dark)
-        - Add custom instructions management
-        - Create keyboard shortcuts
-        - Build prompt library
-        - Add usage tracking dashboard
+        - 實作開團流程（MenuSelector, JoinPolicyRadio, ShareLinkCard）
+        - 實作參與者加入流程（JoinPolicyGate, NicknameInput）
+        - 實作購物車編輯介面（巢狀選項、即時計價）
+        - 實作購物車提交/駁回/重編流程
+        - 實作結團流程與確認對話框
+        - 整合團購狀態顯示（badges, timeline）
       </tasks>
     </step>
 
     <step number="8">
-      <title>Sharing and Collaboration</title>
+      <title>角色與權限系統</title>
       <tasks>
-        - Implement conversation sharing with tokens
-        - Create public share view
-        - Add export to multiple formats
-        - Build prompt templates
-        - Create example conversations
+        - 實作 usePermissions hook
+        - 實作匿名裝置 ID 管理（middleware + client）
+        - 實作權限條件渲染
+        - 整合 Dashboard 權限控制
+        - 測試各角色功能邊界
       </tasks>
     </step>
 
     <step number="9">
-      <title>Polish and Optimization</title>
+      <title>匿名用戶體驗</title>
       <tasks>
-        - Optimize for mobile responsiveness
-        - Add command palette (Cmd+K)
-        - Implement comprehensive keyboard navigation
-        - Add onboarding flow
-        - Create accessibility improvements
-        - Performance optimization and caching
+        - 實作 getOrCreateDeviceId 工具函數
+        - 實作匿名狀態提示 banner
+        - 實作裝置 ID 遺失偵測與警告
+        - 實作登入轉換流程（關聯購物車）
+        - 實作匿名用戶節流與限制
+      </tasks>
+    </step>
+
+    <step number="10">
+      <title>CSV 匯出功能</title>
+      <tasks>
+        - 實作 export_csv API（streaming response）
+        - 實作匯出介面（類型選擇、欄位選擇）
+        - 實作預覽表格
+        - 支援進行中快照與最終版本
+        - 整合金額計算與折扣分攤
+      </tasks>
+    </step>
+
+    <step number="11">
+      <title>購物車版本管理</title>
+      <tasks>
+        - 實作版本歷史介面（timeline view）
+        - 實作版本比較（diff display）
+        - 實作變更日誌查詢
+        - 整合審計追溯功能
+      </tasks>
+    </step>
+
+    <step number="12">
+      <title>即時更新系統 (P3)</title>
+      <priority>P3</priority>
+      <tasks>
+        - 整合 Supabase Realtime WebSocket
+        - 實作 useCartRealtime hook（購物車變更通知）
+        - 實作 useGroupBuyRealtime hook（團購狀態通知）
+        - 實作 useParticipantPresence hook（在線用戶顯示）
+        - 實作衝突處理邏輯
+        - 整合 Toast 和 Banner 通知 UI
+      </tasks>
+    </step>
+
+    <step number="13">
+      <title>媒體上傳 UI 完善 (P4)</title>
+      <priority>P4</priority>
+      <tasks>
+        - 實作 ImageDropzone 拖拽上傳組件
+        - 實作 useImageUpload hook（進度追蹤）
+        - 實作 ImageCropper 裁切組件
+        - 實作 useBatchUpload hook（批次上傳佇列）
+        - 建立媒體庫管理介面
+        - 整合到菜單編輯器
+      </tasks>
+    </step>
+
+    <step number="14">
+      <title>完整 RLS 政策 (P5)</title>
+      <priority>P5</priority>
+      <tasks>
+        - 撰寫 menu/menu_item RLS migrations
+        - 撰寫 option_group/option_choice RLS migrations
+        - 撰寫 rule/rule_target_* RLS migrations
+        - 撰寫 cart_version/cart_change_log RLS migrations
+        - 撰寫 rule_application RLS migrations
+        - 建立 RLS 測試套件
+        - 驗證各角色存取邊界
       </tasks>
     </step>
   </implementation_steps>
 
   <success_criteria>
     <functionality>
-      - Streaming chat responses work smoothly
-      - Artifact detection and rendering accurate
-      - Conversation management intuitive and reliable
-      - Project organization clear and useful
-      - Image upload and display working
-      - All CRUD operations functional
+      - 菜單編輯器支援任意深度巢狀結構
+      - 拖拽排序流暢且準確
+      - 批次儲存確保資料一致性
+      - Undo/Redo 功能正常運作
+      - AI 菜單生成準確且可用
+      - 圖片辨識支援多語言菜單
+      - 規則視覺化編輯器直覺易用
+      - 團主操作完整且有審計記錄
     </functionality>
 
     <user_experience>
-      - Interface matches claude.ai design language
-      - Responsive on all device sizes
-      - Smooth animations and transitions
-      - Fast response times and minimal lag
-      - Intuitive navigation and workflows
-      - Clear feedback for all actions
+      - Optimistic update 讓操作感覺即時
+      - 載入狀態清晰不困惑
+      - 錯誤訊息友善且可操作
+      - 支援觸控設備
+      - 響應式設計適配各種螢幕
     </user_experience>
 
     <technical_quality>
-      - Clean, maintainable code structure
-      - Proper error handling throughout
-      - Secure API key management
-      - Optimized database queries
-      - Efficient streaming implementation
-      - Comprehensive testing coverage
+      - TypeScript 型別完整
+      - 組件可重用性高
+      - 測試覆蓋關鍵流程
+      - 無明顯效能瓶頸
     </technical_quality>
-
-    <design_polish>
-      - Consistent with claude.ai visual design
-      - Beautiful typography and spacing
-      - Smooth animations and micro-interactions
-      - Excellent contrast and accessibility
-      - Professional, polished appearance
-      - Dark mode fully implemented
-    </design_polish>
   </success_criteria>
+
+  <acceptance_criteria>
+    <title>驗收標準</title>
+    <description>
+      以下為系統必須通過的驗收測試案例，源自 PRD 接受標準。
+    </description>
+
+    <menu_system>
+      <title>菜單系統</title>
+      <test_cases>
+        <case id="AC-MENU-001">
+          <name>Slug 唯一性測試</name>
+          <scenario>連續建立 1000 份菜單</scenario>
+          <expected>
+            - 所有 slug 唯一無碰撞
+            - 若碰撞自動重試成功
+            - 每個 slug 為 8 位 nanoid
+          </expected>
+        </case>
+        <case id="AC-MENU-002">
+          <name>Fork 功能測試</name>
+          <scenario>Fork 他人菜單</scenario>
+          <expected>
+            - 產生新 slug
+            - 完整複製選項樹與規則
+            - 保留父子關聯（parent_menu_id）
+            - 修改不影響原菜單
+          </expected>
+        </case>
+        <case id="AC-MENU-003">
+          <name>品項複製測試</name>
+          <scenario>複製品項（含巢狀選項）</scenario>
+          <expected>
+            - 完整複製所有選項群組和選項
+            - 自動重命名（名稱 + 複製）
+            - 複製品為獨立實體
+          </expected>
+        </case>
+      </test_cases>
+    </menu_system>
+
+    <nested_options>
+      <title>巢狀選項</title>
+      <test_cases>
+        <case id="AC-OPT-001">
+          <name>條件顯示測試</name>
+          <scenario>選擇「口味」後顯示對應「醬料」群組</scenario>
+          <expected>
+            - 選擇「辣味」→ 顯示「辣味專屬醬」群組
+            - 選擇「原味」→ 顯示「原味專屬醬」群組
+            - 切換選擇時正確更新子群組
+          </expected>
+        </case>
+        <case id="AC-OPT-002">
+          <name>選擇限制測試</name>
+          <scenario>超出 max_select 限制</scenario>
+          <expected>
+            - 顯示友善錯誤提示
+            - 阻止超出限制的選擇
+            - 提示剩餘可選數量
+          </expected>
+        </case>
+        <case id="AC-OPT-003">
+          <name>必選驗證測試</name>
+          <scenario>未滿足必選群組時加入購物車</scenario>
+          <expected>
+            - 阻止加入購物車
+            - 高亮未完成的必選群組
+            - 顯示明確錯誤訊息
+          </expected>
+        </case>
+      </test_cases>
+    </nested_options>
+
+    <rule_system>
+      <title>優惠規則</title>
+      <test_cases>
+        <case id="AC-RULE-001">
+          <name>Combo 觸發順序測試</name>
+          <scenario>A+B 組合，測試不同加入順序</scenario>
+          <expected>
+            - 先 A 後 B → 觸發組合價
+            - 先 B 後 A → 同樣觸發組合價
+            - 移除任一方 → 撤銷折扣
+          </expected>
+        </case>
+        <case id="AC-RULE-002">
+          <name>Combo 數量配對測試</name>
+          <scenario>A×2 + B×2 組合測試</scenario>
+          <expected>
+            - A×2 + B×1 → 折 1 組
+            - A×2 + B×2 → 折 2 組
+            - A×3 + B×2 → 折 2 組（配對數以少者為準）
+          </expected>
+        </case>
+        <case id="AC-RULE-003">
+          <name>規則疊加測試</name>
+          <scenario>多規則同時生效</scenario>
+          <expected>
+            - 依 priority 順序套用
+            - stackable=true 的規則可並存
+            - stackable=false 的規則互斥
+            - 折扣正確分攤到行項
+          </expected>
+        </case>
+        <case id="AC-RULE-004">
+          <name>BOGO 測試</name>
+          <scenario>買一送一規則</scenario>
+          <expected>
+            - 滿足條件時自動贈送
+            - 贈品行項金額為 0
+            - 移除觸發品項時撤銷贈品
+          </expected>
+        </case>
+        <case id="AC-RULE-005">
+          <name>Addon 測試</name>
+          <scenario>加購優惠規則</scenario>
+          <expected>
+            - 滿足條件時解鎖加購選項
+            - 加購品顯示特價
+            - 未滿足條件時不顯示加購
+          </expected>
+        </case>
+      </test_cases>
+    </rule_system>
+
+    <group_buy>
+      <title>團購功能</title>
+      <test_cases>
+        <case id="AC-GB-001">
+          <name>匿名裝置限制測試</name>
+          <scenario>同裝置在同團內重複加入</scenario>
+          <expected>
+            - 偵測重複裝置 ID
+            - 阻擋重複建立購物車
+            - 返回現有購物車
+          </expected>
+        </case>
+        <case id="AC-GB-002">
+          <name>購物車狀態機測試</name>
+          <scenario>購物車狀態轉換</scenario>
+          <expected>
+            - draft → submitted（參與者提交）
+            - submitted → rejected（團主駁回）
+            - rejected → draft（重新編輯）
+            - submitted → locked（結團鎖定）
+            - draft → void（結團作廢）
+          </expected>
+        </case>
+        <case id="AC-GB-003">
+          <name>提交後不可編輯測試</name>
+          <scenario>參與者嘗試編輯已提交購物車</scenario>
+          <expected>
+            - UI 隱藏編輯按鈕
+            - API 拒絕 patch_cart 請求
+            - 顯示「已提交，如需修改請聯繫團主」
+          </expected>
+        </case>
+        <case id="AC-GB-004">
+          <name>團主修改記錄測試</name>
+          <scenario>團主修改參與者購物車</scenario>
+          <expected>
+            - 產生新 cart_version
+            - 記錄修改原因
+            - 記錄操作者（owner）
+            - 可查看版本差異
+          </expected>
+        </case>
+        <case id="AC-GB-005">
+          <name>團主駁回測試</name>
+          <scenario>團主駁回購物車</scenario>
+          <expected>
+            - 狀態變更為 rejected
+            - 記錄駁回原因
+            - 參與者收到通知
+            - 參與者可重新編輯
+          </expected>
+        </case>
+        <case id="AC-GB-006">
+          <name>結團測試</name>
+          <scenario>團主關閉團購</scenario>
+          <expected>
+            - 團購狀態變更為 closed
+            - submitted → locked
+            - draft/rejected → void
+            - 禁止新加入和修改
+          </expected>
+        </case>
+      </test_cases>
+    </group_buy>
+
+    <csv_export>
+      <title>CSV 匯出</title>
+      <test_cases>
+        <case id="AC-CSV-001">
+          <name>匯出完整性測試</name>
+          <scenario>匯出團購結算 CSV</scenario>
+          <expected>
+            - 所有欄位正確填入
+            - 金額總計與系統一致
+            - 折扣分攤正確
+            - 參與者分項完整
+          </expected>
+        </case>
+        <case id="AC-CSV-002">
+          <name>進行中快照測試</name>
+          <scenario>團購進行中匯出（final=false）</scenario>
+          <expected>
+            - 包含 submitted 和 locked
+            - 不包含 draft 和 rejected
+            - 標記 final=false
+            - 包含 as_of 時間戳
+          </expected>
+        </case>
+        <case id="AC-CSV-003">
+          <name>最終版本測試</name>
+          <scenario>結團後匯出（final=true）</scenario>
+          <expected>
+            - 僅包含 locked
+            - 不包含 void
+            - 標記 final=true
+            - 包含 closed_at 時間
+          </expected>
+        </case>
+      </test_cases>
+    </csv_export>
+
+    <editor_system>
+      <title>編輯器系統</title>
+      <test_cases>
+        <case id="AC-EDIT-001">
+          <name>Undo/Redo 測試</name>
+          <scenario>進行多次編輯後撤銷</scenario>
+          <expected>
+            - 正確還原前一狀態
+            - 支援連續撤銷（最多 50 步）
+            - Redo 正確恢復
+            - 快捷鍵正常運作
+          </expected>
+        </case>
+        <case id="AC-EDIT-002">
+          <name>批次儲存測試</name>
+          <scenario>多項變更後一次儲存</scenario>
+          <expected>
+            - 所有變更原子性提交
+            - 失敗時全部回滾
+            - Optimistic update 正確顯示
+            - 衝突時正確處理
+          </expected>
+        </case>
+        <case id="AC-EDIT-003">
+          <name>拖拽排序測試</name>
+          <scenario>拖拽品項調整順序</scenario>
+          <expected>
+            - 視覺反饋即時
+            - display_order 正確更新
+            - 支援跨區拖拽
+            - 觸控設備正常運作
+          </expected>
+        </case>
+      </test_cases>
+    </editor_system>
+
+    <ai_generation>
+      <title>AI 菜單生成</title>
+      <test_cases>
+        <case id="AC-AI-001">
+          <name>文字生成測試</name>
+          <scenario>輸入文字描述生成菜單</scenario>
+          <expected>
+            - 生成有效的菜單結構
+            - 價格合理（非負整數）
+            - 選項群組結構正確
+            - Streaming 顯示正常
+          </expected>
+        </case>
+        <case id="AC-AI-002">
+          <name>圖片辨識測試</name>
+          <scenario>上傳菜單圖片辨識</scenario>
+          <expected>
+            - 正確辨識品項名稱
+            - 正確提取價格
+            - 支援多語言（繁中/簡中/英/日）
+            - 不確定項目標記 [待確認]
+          </expected>
+        </case>
+      </test_cases>
+    </ai_generation>
+  </acceptance_criteria>
 </project_specification>
