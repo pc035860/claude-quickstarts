@@ -277,6 +277,9 @@ def main():
         "grep -r pattern src/",
         "echo hello",
         "echo 'test message'",
+        "jq . package.json",
+        "cat data.json | jq '.key'",
+        "jq -r '.name' package.json",
         # File operations
         "cp file1.txt file2.txt",
         "mkdir newdir",

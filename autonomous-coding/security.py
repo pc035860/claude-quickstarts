@@ -22,6 +22,7 @@ ALLOWED_COMMANDS = {
     "wc",
     "grep",
     "echo",  # For outputting text
+    "jq",  # For JSON processing
     # File operations (agent uses SDK tools for most file ops, but cp/mkdir needed occasionally)
     "cp",
     "mkdir",
