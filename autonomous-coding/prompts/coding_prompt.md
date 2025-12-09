@@ -47,6 +47,15 @@ new, you MUST run verification tests.
 - Check for functional AND visual issues
 - **Record the agentId** for potential resume later
 
+**Retry Logic (MANDATORY):**
+- **First attempt:** Use @agent-ui-verify subagent
+- **If the subagent returns no output or no verification report:**
+  - Retry once more using @agent-ui-verify subagent (new instance)
+  - **Record the new agentId** for potential resume
+- **If the second attempt also fails (no output or no verification report):**
+  - Fall back to main agent verification using browser automation tools directly
+  - Perform the same verification steps manually through the UI
+
 **If the subagent finds ANY issues:**
 - Mark that feature as "passes": false immediately
 - Fix all issues BEFORE moving to new features
