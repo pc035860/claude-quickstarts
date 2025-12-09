@@ -5,33 +5,23 @@ This is a FRESH context window - you have no memory of previous sessions.
 
 ### STEP 1: GET YOUR BEARINGS (MANDATORY)
 
-Start by orienting yourself:
+**Use @agent-Explore (run in foreground) to gather and organize project context:**
 
-```bash
-# 1. See your working directory
-pwd
+The explore agent should:
+- Read the project specification (`app_spec.txt`) - this contains the full requirements
+- Read and summarize the feature list (`feature_list.json`) - show work completed and remaining
+- Read progress notes from previous sessions (`claude-progress.txt`)
+- Check recent git history to understand recent changes
+- Count remaining tests (features with `"passes": false`)
+- Explore project structure to understand the codebase organization
 
-# 2. List files to understand project structure
-ls -la
+**Record the agentId** for potential resume if you need additional exploration.
 
-# 3. Read the project specification to understand what you're building
-cat app_spec.txt
-
-# 4. Read the feature list to see all work
-cat feature_list.json | head -50
-
-# 5. Read progress notes from previous sessions
-cat claude-progress.txt
-
-# 6. Check recent git history
-git log --oneline -20
-
-# 7. Count remaining tests
-cat feature_list.json | grep '"passes": false' | wc -l
-```
-
-Understanding the `app_spec.txt` is critical - it contains the full requirements
-for the application you're building.
+After the explore agent completes, review its findings to understand:
+- What the application is supposed to do (from app_spec.txt)
+- Current project status and progress
+- What features are completed vs. remaining
+- Recent changes and development history
 
 ### STEP 2: START SERVERS (IF NOT RUNNING)
 
@@ -50,21 +40,26 @@ Otherwise, start servers manually and document the process.
 The previous session may have introduced bugs. Before implementing anything
 new, you MUST run verification tests.
 
-Run 1-2 of the feature tests marked as `"passes": true` that are most core to the app's functionality to verify they still work.
-For example, if this were a chat app, you should perform a test that logs into the app, sends a message, and gets a response.
+**Use @agent-ui-verify (run in foreground) for regression testing:**
 
-**If you find ANY issues (functional or visual):**
+- Run 1-2 feature tests marked as `"passes": true` that are core to the app
+- Verify they still work correctly through the actual UI
+- Check for functional AND visual issues
+- **Record the agentId** for potential resume later
+
+**If the subagent finds ANY issues:**
 - Mark that feature as "passes": false immediately
-- Add issues to a list
 - Fix all issues BEFORE moving to new features
-- This includes UI bugs like:
-  * White-on-white text or poor contrast
-  * Random characters displayed
-  * Incorrect timestamps
-  * Layout issues or overflow
-  * Buttons too close together
-  * Missing hover states
-  * Console errors
+- **Resume the same subagent** (using its agentId) if deeper investigation is needed
+
+**Issues to check:**
+- White-on-white text or poor contrast
+- Random characters displayed
+- Incorrect timestamps
+- Layout issues or overflow
+- Buttons too close together
+- Missing hover states
+- Console errors
 
 ### STEP 4: CHOOSE ONE FEATURE TO IMPLEMENT
 
@@ -73,23 +68,46 @@ Look at feature_list.json and find the highest-priority feature with "passes": f
 Focus on completing one feature perfectly and completing its testing steps in this session before moving on to other features.
 It's ok if you only complete one feature in this session, as there will be more sessions later that continue to make progress.
 
-### STEP 5: IMPLEMENT THE FEATURE
+### STEP 5: EXPLORE CODEBASE (BEFORE IMPLEMENTATION)
+
+**MANDATORY BEFORE IMPLEMENTATION:**
+
+Before writing any code, you MUST perform comprehensive codebase exploration and data gathering.
+
+**Use @agent-Explore (haiku, run in foreground) to conduct broad code exploration:**
+
+- Explore the codebase structure and architecture
+- Identify relevant files, modules, and dependencies for the chosen feature
+- Understand existing patterns, conventions, and code organization
+- Gather context about related features and their implementations
+- Discover potential integration points and dependencies
+- Map out data flow and component relationships
+
+**IMPORTANT: Run subagents in parallel** - Launch multiple exploration tasks simultaneously to gather comprehensive information efficiently.
+
+This exploration phase ensures you have full context before implementation, reducing the risk of introducing bugs or breaking existing functionality.
+
+### STEP 6: IMPLEMENT THE FEATURE
 
 Implement the chosen feature thoroughly:
 1. Write the code (frontend and/or backend as needed)
-2. Test manually using browser automation (see Step 6)
+2. Test manually using browser automation (see Step 7)
 3. Fix any issues discovered
 4. Verify the feature works end-to-end
 
-### STEP 6: VERIFY WITH BROWSER AUTOMATION
+### STEP 7: VERIFY WITH BROWSER AUTOMATION
 
 **CRITICAL:** You MUST verify features through the actual UI.
 
-Use browser automation tools:
+**Use @agent-ui-verify (run in foreground) for feature verification:**
+
+Note: This is a SEPARATE instance from Step 3's regression testing subagent.
+
 - Navigate to the app in a real browser
 - Interact like a human user (click, type, scroll)
 - Take screenshots at each step
 - Verify both functionality AND visual appearance
+- **Record the agentId** - resume if additional verification cycles needed
 
 **DO:**
 - Test through the UI with clicks and keyboard input
@@ -107,7 +125,18 @@ Use browser automation tools:
   - Use regular viewport screenshots instead
   - If you need to see more, scroll and take another screenshot
 
-### STEP 7: UPDATE feature_list.json (CAREFULLY!)
+**Resume Usage:**
+If issues are found and fixes applied, resume the same subagent to continue 
+verification without losing context of what was already tested:
+```json
+{
+  "prompt": "Re-verify after fix",
+  "subagent_type": "agent-ui-verify",
+  "resume": "<agentId-from-step-7>"
+}
+```
+
+### STEP 8: UPDATE feature_list.json (CAREFULLY!)
 
 **YOU CAN ONLY MODIFY ONE FIELD: "passes"**
 
@@ -129,7 +158,7 @@ to:
 
 **ONLY CHANGE "passes" FIELD AFTER VERIFICATION WITH SCREENSHOTS.**
 
-### STEP 8: COMMIT YOUR PROGRESS
+### STEP 9: COMMIT YOUR PROGRESS
 
 Make a descriptive git commit:
 ```bash
@@ -143,7 +172,7 @@ git commit -m "Implement [feature name] - verified end-to-end
 "
 ```
 
-### STEP 9: UPDATE PROGRESS NOTES
+### STEP 10: UPDATE PROGRESS NOTES
 
 Update `claude-progress.txt` with:
 - What you accomplished this session
@@ -152,7 +181,7 @@ Update `claude-progress.txt` with:
 - What should be worked on next
 - Current completion status (e.g., "45/200 tests passing")
 
-### STEP 10: END SESSION CLEANLY
+### STEP 11: END SESSION CLEANLY
 
 Before context fills up:
 1. Commit all working code
@@ -224,7 +253,7 @@ Available chrome-devtools tools:
 - Fast, responsive, professional
 
 **You have unlimited time.** Take as long as needed to get it right. The most important thing is that you
-leave the code base in a clean state before terminating the session (Step 10).
+leave the code base in a clean state before terminating the session (Step 11).
 
 ---
 

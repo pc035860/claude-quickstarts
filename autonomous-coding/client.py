@@ -9,7 +9,7 @@ import json
 import os
 from pathlib import Path
 
-from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
+from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 
 from security import bash_security_hook
 
@@ -137,6 +137,35 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
                         "--headless"
                     ]
                 }
+            },
+            agents={
+                "ui-verify": AgentDefinition(
+                    description="UI verification specialist with browser automation. Use for testing features through the actual UI.",
+                    prompt="""You are a UI verification specialist with browser automation expertise. Your role is VERIFICATION and TESTING ONLY.
+
+Your task:
+- Navigate and interact like a human user (click, type, scroll)
+- Take viewport screenshots (NEVER use fullPage: True)
+- Check for visual issues (contrast, layout, overflow)
+- Verify console for errors
+- Test complete user workflows end-to-end
+- Be thorough and report all issues found
+
+CRITICAL: You are a VERIFICATION agent only. Do NOT:
+- Attempt to modify files or fix issues
+- Try to correct problems you discover
+- Make any code changes
+
+When you find issues:
+- Report them clearly and completely
+- Provide detailed descriptions of what you observed
+- Include screenshots and console errors
+- The main agent will handle fixes, then resume you for re-verification
+
+Your job is to test and report, not to fix.""",
+                    tools=["Read", "Bash"] + CHROME_DEVTOOLS_TOOLS,
+                    model="haiku"
+                )
             },
             hooks={
                 "PreToolUse": [

@@ -21,6 +21,7 @@ ALLOWED_COMMANDS = {
     "tail",
     "wc",
     "grep",
+    "find",  # For finding files and directories
     "echo",  # For outputting text
     "jq",  # For JSON processing
     # File operations (agent uses SDK tools for most file ops, but cp/mkdir needed occasionally)

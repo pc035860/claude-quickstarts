@@ -21,6 +21,15 @@ from prompts import get_initializer_prompt, get_coding_prompt, copy_spec_to_proj
 # Configuration
 AUTO_CONTINUE_DELAY_SECONDS = 3
 
+# ANSI color codes for subagent messages (4 colors cycling by subagent)
+SUBAgent_COLORS = [
+    "\033[94m",  # Bright Blue
+    "\033[92m",  # Bright Green
+    "\033[93m",  # Bright Yellow
+    "\033[95m",  # Bright Magenta
+]
+RESET_COLOR = "\033[0m"
+
 
 def _write_error_log(
     error_log: Path,
@@ -98,11 +107,41 @@ async def run_agent_session(
         message_count = 0
         tool_use_count = 0
         last_message_time = None
+        
+        # Track color assignment for each subagent (by parent_tool_use_id or Task tool id)
+        subagent_colors = {}
 
         async for msg in client.receive_response():
             message_count += 1
             last_message_time = datetime.now()
             msg_type = type(msg).__name__
+            
+            # Check if this is a subagent message
+            # Method 1: If parent_tool_use_id is not None, it's a subagent message
+            parent_tool_use_id = getattr(msg, "parent_tool_use_id", None)
+            is_sidechain = parent_tool_use_id is not None
+            agent_id = parent_tool_use_id  # Use parent_tool_use_id as the subagent identifier
+            
+            # Method 2: If this is a Task tool call from main agent, it's starting a subagent
+            # Check for Task tool in AssistantMessage content
+            if not is_sidechain and msg_type == "AssistantMessage" and hasattr(msg, "content"):
+                for block in msg.content:
+                    if hasattr(block, "__class__") and block.__class__.__name__ == "ToolUseBlock":
+                        if hasattr(block, "name") and block.name == "Task":
+                            # This is a Task tool call starting a subagent
+                            if hasattr(block, "id"):
+                                agent_id = block.id  # Use Task tool id as identifier
+                                is_sidechain = True
+            
+            # Assign color to new subagents
+            if is_sidechain and agent_id is not None:
+                if agent_id not in subagent_colors:
+                    # Assign next available color
+                    color_index = len(subagent_colors) % len(SUBAgent_COLORS)
+                    subagent_colors[agent_id] = SUBAgent_COLORS[color_index]
+                color = subagent_colors[agent_id]
+            else:
+                color = ""
 
             # Handle AssistantMessage (text and tool use)
             if msg_type == "AssistantMessage" and hasattr(msg, "content"):
@@ -111,19 +150,44 @@ async def run_agent_session(
 
                     if block_type == "TextBlock" and hasattr(block, "text"):
                         response_text += block.text
-                        print(block.text, end="", flush=True)
+                        if is_sidechain:
+                            print(f"{color}{block.text}{RESET_COLOR}", end="", flush=True)
+                        else:
+                            print(block.text, end="", flush=True)
                     elif block_type == "ToolUseBlock" and hasattr(block, "name"):
                         tool_use_count += 1
-                        print(f"\n[Tool: {block.name}]", flush=True)
+                        if is_sidechain:
+                            print(f"\n{color}[Tool: {block.name}]{RESET_COLOR}", flush=True)
+                        else:
+                            print(f"\n[Tool: {block.name}]", flush=True)
                         if hasattr(block, "input"):
                             input_str = str(block.input)
                             if len(input_str) > 200:
-                                print(f"   Input: {input_str[:200]}...", flush=True)
+                                if is_sidechain:
+                                    print(f"{color}   Input: {input_str[:200]}...{RESET_COLOR}", flush=True)
+                                else:
+                                    print(f"   Input: {input_str[:200]}...", flush=True)
                             else:
-                                print(f"   Input: {input_str}", flush=True)
+                                if is_sidechain:
+                                    print(f"{color}   Input: {input_str}{RESET_COLOR}", flush=True)
+                                else:
+                                    print(f"   Input: {input_str}", flush=True)
 
             # Handle UserMessage (tool results)
             elif msg_type == "UserMessage" and hasattr(msg, "content"):
+                # Check if this is a subagent message by checking parent_tool_use_id
+                parent_tool_use_id_result = getattr(msg, "parent_tool_use_id", None)
+                is_sidechain_result = parent_tool_use_id_result is not None
+                agent_id_result = parent_tool_use_id_result  # Use parent_tool_use_id as the subagent identifier
+                
+                if is_sidechain_result and agent_id_result is not None:
+                    if agent_id_result not in subagent_colors:
+                        color_index = len(subagent_colors) % len(SUBAgent_COLORS)
+                        subagent_colors[agent_id_result] = SUBAgent_COLORS[color_index]
+                    color_result = subagent_colors[agent_id_result]
+                else:
+                    color_result = ""
+                
                 for block in msg.content:
                     block_type = type(block).__name__
 
@@ -133,14 +197,23 @@ async def run_agent_session(
 
                         # Check if command was blocked by security hook
                         if "blocked" in str(result_content).lower():
-                            print(f"   [BLOCKED] {result_content}", flush=True)
+                            if is_sidechain_result:
+                                print(f"{color_result}   [BLOCKED] {result_content}{RESET_COLOR}", flush=True)
+                            else:
+                                print(f"   [BLOCKED] {result_content}", flush=True)
                         elif is_error:
                             # Show errors (truncated)
                             error_str = str(result_content)[:500]
-                            print(f"   [Error] {error_str}", flush=True)
+                            if is_sidechain_result:
+                                print(f"{color_result}   [Error] {error_str}{RESET_COLOR}", flush=True)
+                            else:
+                                print(f"   [Error] {error_str}", flush=True)
                         else:
                             # Tool succeeded - just show brief confirmation
-                            print("   [Done]", flush=True)
+                            if is_sidechain_result:
+                                print(f"{color_result}   [Done]{RESET_COLOR}", flush=True)
+                            else:
+                                print("   [Done]", flush=True)
 
         # Session ended - log statistics
         session_end_time = datetime.now()
