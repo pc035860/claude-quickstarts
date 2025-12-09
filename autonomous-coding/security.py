@@ -51,6 +51,8 @@ ALLOWED_COMMANDS = {
     "kill",  # For killing dev servers by PID; validated separately
     # Script execution
     "init.sh",  # Init scripts; validated separately
+    # Shell builtins
+    "set",  # For setting shell options (e.g., set -e, set -x)
 }
 
 # Commands that need additional validation even when in the allowlist
