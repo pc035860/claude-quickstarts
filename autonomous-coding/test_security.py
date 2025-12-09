@@ -282,6 +282,8 @@ def main():
         "jq -r '.name' package.json",
         # File operations
         "cp file1.txt file2.txt",
+        "mv file1.txt file2.txt",
+        "mv oldname.txt newname.txt",
         "mkdir newdir",
         "mkdir -p path/to/dir",
         # Directory
@@ -308,6 +310,11 @@ def main():
         "echo test | xargs",
         "echo file1 file2 | xargs ls",
         "ls | xargs echo",
+        "echo 'test' | tee output.txt",
+        "npm install | tee install.log",
+        "set -e",
+        "set -x",
+        "set -e -x",
         # Allowed pkill patterns for dev servers
         "pkill node",
         "pkill npm",

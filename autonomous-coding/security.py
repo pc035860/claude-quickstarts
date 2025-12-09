@@ -25,8 +25,10 @@ ALLOWED_COMMANDS = {
     "jq",  # For JSON processing
     # File operations (agent uses SDK tools for most file ops, but cp/mkdir needed occasionally)
     "cp",
+    "mv",  # For moving/renaming files
     "mkdir",
     "chmod",  # For making scripts executable; validated separately
+    "tee",  # For writing output to both file and stdout
     "xargs",  # For building and executing command lines from standard input
     # Directory
     "pwd",
