@@ -183,6 +183,15 @@ git commit -m "Implement [feature name] - verified end-to-end
 
 ### STEP 10: UPDATE PROGRESS NOTES
 
+**Recommended: Use edit tools (search_replace or write) to update `claude-progress.txt`**
+
+**Note:** Avoid using `cat` with heredoc/EOF syntax as it can be error-prone and cause formatting issues.
+
+**Suggested approach:**
+- Read the existing file first with `read_file`
+- Use `search_replace` to update specific sections, or
+- Use `write` to replace the entire file if needed
+
 Update `claude-progress.txt` with:
 - What you accomplished this session
 - Which test(s) you completed
