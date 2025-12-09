@@ -241,8 +241,10 @@ Available chrome-devtools tools:
 
 **Best Practices:**
 - Test like a human user with mouse and keyboard. Don't take shortcuts by using JavaScript evaluation.
+- **Set viewport size first** - Use `resize_page` to set viewport to 1366x768 before taking screenshots. Default viewport may be unpredictable (could be 1200x2029 or other sizes). Setting it explicitly ensures consistent screenshot dimensions.
 - Use take_snapshot instead of take_screenshot when possible - it captures structured DOM/CSS data and doesn't have buffer size limits.
 - Use take_screenshot only for visual verification when needed.
+- **IMPORTANT: Use tool return values directly** - chrome-devtools MCP tools return results directly in the tool response. Do NOT use `filePath` parameter unless you specifically need to persist the data to a file. Reading the return value is more efficient than saving to file and then reading the file.
 - Check console messages after each major interaction to catch errors early.
 
 ---

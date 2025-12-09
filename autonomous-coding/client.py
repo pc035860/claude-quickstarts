@@ -144,8 +144,10 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
                     prompt="""You are a UI verification specialist with browser automation expertise. Your role is VERIFICATION and TESTING ONLY.
 
 Your task:
+- **First, set viewport size** - Use `resize_page` to set viewport to 1366x768 before taking screenshots. This ensures consistent screenshot dimensions.
 - Navigate and interact like a human user (click, type, scroll)
 - Take viewport screenshots (NEVER use fullPage: True)
+- **Use tool return values directly** - chrome-devtools MCP tools return results directly. Do NOT use `filePath` parameter unless you specifically need to persist data. Reading the return value is more efficient.
 - Check for visual issues (contrast, layout, overflow)
 - Verify console for errors
 - Test complete user workflows end-to-end
