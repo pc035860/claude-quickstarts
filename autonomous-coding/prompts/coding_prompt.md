@@ -93,15 +93,19 @@ Use browser automation tools:
 
 **DO:**
 - Test through the UI with clicks and keyboard input
-- Take screenshots to verify visual appearance
+- Take screenshots to verify visual appearance (viewport only, NOT fullPage)
 - Check for console errors in browser
 - Verify complete user workflows end-to-end
+- Scroll to different sections and take multiple viewport screenshots if needed
 
 **DON'T:**
 - Only test with curl commands (backend testing alone is insufficient)
 - Use JavaScript evaluation to bypass UI (no shortcuts)
 - Skip visual verification
 - Mark tests passing without thorough verification
+- ⚠️ **NEVER use `fullPage: True` in screenshots** - it causes JSON buffer overflow (>1MB limit)
+  - Use regular viewport screenshots instead
+  - If you need to see more, scroll and take another screenshot
 
 ### STEP 7: UPDATE feature_list.json (CAREFULLY!)
 
@@ -165,10 +169,13 @@ Before context fills up:
 
 Available tools:
 - puppeteer_navigate - Start browser and go to URL
-- puppeteer_screenshot - Capture screenshot
+- puppeteer_screenshot - Capture screenshot (⚠️ NEVER use fullPage: True - causes buffer overflow)
 - puppeteer_click - Click elements
 - puppeteer_fill - Fill form inputs
 - puppeteer_evaluate - Execute JavaScript (use sparingly, only for debugging)
+- chrome-devtools tools (navigate_page, take_snapshot, take_screenshot)
+  - ⚠️ take_screenshot with fullPage: True will cause JSON buffer overflow
+  - Use regular screenshots or take_snapshot instead
 
 Test like a human user with mouse and keyboard. Don't take shortcuts by using JavaScript evaluation.
 Don't use the puppeteer "active tab" tool.

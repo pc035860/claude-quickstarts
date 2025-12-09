@@ -237,6 +237,17 @@ async def run_agent_session(
         error_type = type(e).__name__
         error_msg = str(e)
 
+        # 檢查是否為 JSON buffer overflow 錯誤
+        is_buffer_overflow = (
+            "JSON message exceeded maximum buffer size" in error_msg
+            or "1048576" in error_msg
+        )
+        
+        # 檢查是否可能與截圖相關（從錯誤前的 log 推斷）
+        is_screenshot_related = (
+            "take_screenshot" in str(e.__traceback__) if hasattr(e, "__traceback__") else False
+        ) or "screenshot" in error_msg.lower()
+
         print(f"\n{'='*70}")
         print(f"ERROR during agent session [{error_time}]")
         if iteration is not None:
@@ -244,6 +255,37 @@ async def run_agent_session(
         print(f"{'='*70}")
         print(f"Error Type: {error_type}")
         print(f"Error Message: {error_msg}")
+        
+        # 針對 buffer overflow 提供特殊建議
+        if is_buffer_overflow:
+            print(f"\n{'='*70}")
+            print("⚠️  JSON BUFFER OVERFLOW DETECTED")
+            print(f"{'='*70}")
+            print("\nThis error occurs when tool results exceed 1MB limit.")
+            print("\nCommon causes:")
+            print("  1. 📸 Screenshot with fullPage: True")
+            print("     - Full-page screenshots generate huge JSON (>1MB)")
+            print("     - Solution: Use regular viewport screenshots instead")
+            print("     - If needed, scroll and take multiple screenshots")
+            print("  2. 📄 Reading entire large files")
+            print("     - app_spec.txt, feature_list.json can be very large")
+            print("     - Solution: Read in chunks using 'head' or 'tail'")
+            print("     - Example: head -100 app_spec.txt")
+            print("  3. 🔍 Large grep/glob results")
+            print("     - Solution: Limit results with 'head' or line limits")
+            print("     - Example: grep 'pattern' file | head -50")
+            print("\nQuick fixes:")
+            if is_screenshot_related:
+                print("  ⚠️  This appears to be screenshot-related!")
+                print("  → Remove 'fullPage: True' from screenshot calls")
+                print("  → Use regular screenshots or take_snapshot instead")
+                print("  → Scroll to different sections if you need to see more")
+            else:
+                print("  → Read files in chunks (head/tail)")
+                print("  → Limit tool result sizes")
+                print("  → The prompt has been updated with best practices")
+            print(f"\n{'='*70}\n")
+
         print(f"\nFull Traceback:")
         print("-" * 70)
         traceback.print_exc()
