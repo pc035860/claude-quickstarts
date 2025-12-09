@@ -383,6 +383,8 @@ async def run_autonomous_agent(
     project_dir: Path,
     model: str,
     max_iterations: Optional[int] = None,
+    app_spec: Optional[Path] = None,
+    feature_count: int = 200,
 ) -> None:
     """
     Run the autonomous agent loop.
@@ -391,6 +393,9 @@ async def run_autonomous_agent(
         project_dir: Directory for the project
         model: Claude model to use
         max_iterations: Maximum number of iterations (None for unlimited)
+        app_spec: Optional path to app spec file. Only used during initialization.
+                  If None, uses default prompts/app_spec.txt.
+        feature_count: Number of features to generate in feature_list.json (default: 200)
     """
     print("\n" + "=" * 70)
     print("  AUTONOMOUS CODING AGENT DEMO")
@@ -412,6 +417,8 @@ async def run_autonomous_agent(
 
     if is_first_run:
         print("Fresh start - will use initializer agent")
+        if app_spec:
+            print(f"Using app spec file: {app_spec}")
         print()
         print("=" * 70)
         print("  NOTE: First session takes 10-20+ minutes!")
@@ -420,7 +427,7 @@ async def run_autonomous_agent(
         print("=" * 70)
         print()
         # Copy the app spec into the project directory for the agent to read
-        copy_spec_to_project(project_dir)
+        copy_spec_to_project(project_dir, app_spec)
     else:
         print("Continuing existing project")
         print_progress_summary(project_dir)
@@ -450,7 +457,7 @@ async def run_autonomous_agent(
 
             # Choose prompt based on session type
             if is_first_run:
-                prompt = get_initializer_prompt()
+                prompt = get_initializer_prompt(feature_count=feature_count)
                 is_first_run = False  # Only use initializer once
             else:
                 prompt = get_coding_prompt()

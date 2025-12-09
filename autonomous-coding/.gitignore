@@ -6,3 +6,4 @@ logs/
 
 specs/handover/
 __pycache__/
+.claude/settings.local.json

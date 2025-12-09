@@ -34,6 +34,9 @@ Examples:
   # Start fresh project
   python autonomous_agent_demo.py --project-dir ./claude_clone
 
+  # Start with custom app spec file
+  python autonomous_agent_demo.py --project-dir ./my_project --app-spec ./specs/my_app_spec.txt
+
   # Use a specific model
   python autonomous_agent_demo.py --project-dir ./claude_clone --model claude-sonnet-4-5-20250929
 
@@ -68,6 +71,20 @@ Environment Variables:
         type=str,
         default=DEFAULT_MODEL,
         help=f"Claude model to use (default: {DEFAULT_MODEL})",
+    )
+
+    parser.add_argument(
+        "--app-spec",
+        type=Path,
+        default=None,
+        help="Path to app spec file (default: prompts/app_spec.txt). Only used for initialization. If project already has app_spec.txt, this is ignored.",
+    )
+
+    parser.add_argument(
+        "--feature-count",
+        type=int,
+        default=200,
+        help="Number of features to generate in feature_list.json (default: 200)",
     )
 
     return parser.parse_args()
@@ -107,6 +124,8 @@ def main() -> None:
                 project_dir=project_dir,
                 model=args.model,
                 max_iterations=args.max_iterations,
+                app_spec=args.app_spec,
+                feature_count=args.feature_count,
             )
         )
     except KeyboardInterrupt:
