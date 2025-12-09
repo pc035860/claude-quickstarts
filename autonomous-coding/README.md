@@ -6,18 +6,42 @@ A minimal harness demonstrating long-running autonomous coding with the Claude A
 
 **Required:** Install the latest versions of both Claude Code and the Claude Agent SDK:
 
+### Install Claude Code CLI
+
 ```bash
-# Install Claude Code CLI (latest version required)
 npm install -g @anthropic-ai/claude-code
+```
+
+### Install Python Dependencies
+
+This project uses [uv](https://github.com/astral-sh/uv) for fast Python package management. You can use either `uv` or traditional `pip`:
+
+**Option 1 - Using uv (Recommended):**
+
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install Python dependencies
+uv pip install -r requirements.txt
+```
+
+**Option 2 - Using pip:**
+
+```bash
 pip install -r requirements.txt
 ```
 
-Verify your installations:
+### Verify Installations
+
 ```bash
 claude --version  # Should be latest version
-pip show claude-code-sdk  # Check SDK is installed
+
+# If using uv:
+uv pip show claude-agent-sdk  # Check SDK is installed
+
+# If using pip:
+pip show claude-agent-sdk  # Check SDK is installed
 ```
 
 **Authentication:** Set ONE of the following:
@@ -34,12 +58,24 @@ export CLAUDE_CODE_OAUTH_TOKEN='your-claude-code-auth-token'
 
 ## Quick Start
 
+**Using uv (Recommended):**
+
+```bash
+uv run python autonomous_agent_demo.py --project-dir ./my_project
+```
+
+**Using traditional Python:**
+
 ```bash
 python autonomous_agent_demo.py --project-dir ./my_project
 ```
 
 For testing with limited iterations:
 ```bash
+# With uv:
+uv run python autonomous_agent_demo.py --project-dir ./my_project --max-iterations 3
+
+# With traditional Python:
 python autonomous_agent_demo.py --project-dir ./my_project --max-iterations 3
 ```
 

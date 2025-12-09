@@ -167,18 +167,45 @@ Before context fills up:
 
 **ALL testing must use browser automation tools.**
 
-Available tools:
-- puppeteer_navigate - Start browser and go to URL
-- puppeteer_screenshot - Capture screenshot (⚠️ NEVER use fullPage: True - causes buffer overflow)
-- puppeteer_click - Click elements
-- puppeteer_fill - Fill form inputs
-- puppeteer_evaluate - Execute JavaScript (use sparingly, only for debugging)
-- chrome-devtools tools (navigate_page, take_snapshot, take_screenshot)
-  - ⚠️ take_screenshot with fullPage: True will cause JSON buffer overflow
-  - Use regular screenshots or take_snapshot instead
+Available chrome-devtools tools:
 
-Test like a human user with mouse and keyboard. Don't take shortcuts by using JavaScript evaluation.
-Don't use the puppeteer "active tab" tool.
+**Navigation:**
+- navigate_page - Navigate to a URL
+- new_page - Open a new tab
+- close_page - Close current tab
+- list_pages - List all open tabs
+- select_page - Switch to a specific tab
+- wait_for - Wait for text to appear/disappear or wait for a duration
+
+**Input Automation:**
+- click - Click page elements
+- fill - Fill a single input field
+- fill_form - Fill an entire form at once
+- press_key - Simulate keyboard key presses
+- hover - Hover over elements (triggers hover effects)
+- drag - Drag and drop elements
+- upload_file - Upload files to file inputs
+- handle_dialog - Handle browser dialogs (alert, confirm, prompt)
+
+**Debugging & Inspection:**
+- take_screenshot - Capture visual screenshot (⚠️ NEVER use fullPage: True - causes buffer overflow)
+- take_snapshot - Capture accessibility snapshot (DOM + CSS state, preferred for element inspection)
+- evaluate_script - Execute JavaScript in page context (use sparingly, only for debugging)
+- list_console_messages - List browser console messages (errors, warnings, logs)
+- list_network_requests - List all network requests
+- get_network_request - Get detailed info about a specific network request
+
+**Emulation:**
+- emulate - Simulate different CPU or network conditions
+- resize_page - Resize browser window
+
+**Note:** Some advanced tools like performance tracing may be available but are not included in the current tool list. Focus on the tools listed above for testing and verification.
+
+**Best Practices:**
+- Test like a human user with mouse and keyboard. Don't take shortcuts by using JavaScript evaluation.
+- Use take_snapshot instead of take_screenshot when possible - it captures structured DOM/CSS data and doesn't have buffer size limits.
+- Use take_screenshot only for visual verification when needed.
+- Check console messages after each major interaction to catch errors early.
 
 ---
 

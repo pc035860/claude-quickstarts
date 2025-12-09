@@ -201,17 +201,37 @@ def validate_pkill_command(command_string: str) -> tuple[bool, str]:
     if not tokens:
         return False, "Empty pkill command"
 
-    # Separate flags from arguments
-    args = []
-    for token in tokens[1:]:
-        if not token.startswith("-"):
+    # Check if -f flag is present
+    has_f_flag = "-f" in tokens
+    
+    if has_f_flag:
+        # For -f flag, find the argument immediately after -f
+        f_index = tokens.index("-f")
+        if f_index + 1 >= len(tokens):
+            return False, "pkill -f requires an argument"
+        target = tokens[f_index + 1]
+    else:
+        # Without -f flag, find the last non-flag, non-redirect argument
+        # Filter out redirect-related tokens
+        redirect_keywords = {">", ">>", "<", "2>", "&>", "/dev/null", "/dev/stderr", "/dev/stdout"}
+        args = []
+        for token in tokens[1:]:
+            # Skip flags
+            if token.startswith("-"):
+                continue
+            # Skip redirect keywords
+            if token in redirect_keywords:
+                continue
+            # Skip tokens containing redirect operators (e.g., "2>/dev/null")
+            if ">" in token or "<" in token:
+                continue
             args.append(token)
-
-    if not args:
-        return False, "pkill requires a process name"
-
-    # The target is typically the last non-flag argument
-    target = args[-1]
+        
+        if not args:
+            return False, "pkill requires a process name"
+        
+        # The target is the last non-flag, non-redirect argument
+        target = args[-1]
 
     # For -f flag (full command line match), extract the first word as process name
     # e.g., "pkill -f 'node server.js'" -> target is "node server.js", process is "node"

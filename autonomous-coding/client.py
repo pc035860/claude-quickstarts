@@ -9,21 +9,36 @@ import json
 import os
 from pathlib import Path
 
-from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient
-from claude_code_sdk.types import HookMatcher
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, HookMatcher
 
 from security import bash_security_hook
 
 
-# Puppeteer MCP tools for browser automation
-PUPPETEER_TOOLS = [
-    "mcp__puppeteer__puppeteer_navigate",
-    "mcp__puppeteer__puppeteer_screenshot",
-    "mcp__puppeteer__puppeteer_click",
-    "mcp__puppeteer__puppeteer_fill",
-    "mcp__puppeteer__puppeteer_select",
-    "mcp__puppeteer__puppeteer_hover",
-    "mcp__puppeteer__puppeteer_evaluate",
+# Chrome DevTools MCP tools for browser automation
+CHROME_DEVTOOLS_TOOLS = [
+    "mcp__chrome-devtools__click",
+    "mcp__chrome-devtools__close_page",
+    "mcp__chrome-devtools__drag",
+    "mcp__chrome-devtools__emulate",
+    "mcp__chrome-devtools__evaluate_script",
+    "mcp__chrome-devtools__fill",
+    "mcp__chrome-devtools__fill_form",
+    "mcp__chrome-devtools__get_console_message",
+    "mcp__chrome-devtools__get_network_request",
+    "mcp__chrome-devtools__handle_dialog",
+    "mcp__chrome-devtools__hover",
+    "mcp__chrome-devtools__list_console_messages",
+    "mcp__chrome-devtools__list_network_requests",
+    "mcp__chrome-devtools__list_pages",
+    "mcp__chrome-devtools__navigate_page",
+    "mcp__chrome-devtools__new_page",
+    "mcp__chrome-devtools__press_key",
+    "mcp__chrome-devtools__resize_page",
+    "mcp__chrome-devtools__select_page",
+    "mcp__chrome-devtools__take_screenshot",
+    "mcp__chrome-devtools__take_snapshot",
+    "mcp__chrome-devtools__upload_file",
+    "mcp__chrome-devtools__wait_for",
 ]
 
 # Built-in tools
@@ -84,8 +99,8 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
                 # Bash permission granted here, but actual commands are validated
                 # by the bash_security_hook (see security.py for allowed commands)
                 "Bash(*)",
-                # Allow Puppeteer MCP tools for browser automation
-                *PUPPETEER_TOOLS,
+                # Allow Chrome DevTools MCP tools for browser automation
+                *CHROME_DEVTOOLS_TOOLS,
             ],
         },
     }
@@ -102,19 +117,26 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
     print("   - Sandbox enabled (OS-level bash isolation)")
     print(f"   - Filesystem restricted to: {project_dir.resolve()}")
     print("   - Bash commands restricted to allowlist (see security.py)")
-    print("   - MCP servers: puppeteer (browser automation)")
+    print("   - MCP servers: chrome-devtools (browser automation)")
     print()
 
     return ClaudeSDKClient(
-        options=ClaudeCodeOptions(
+        options=ClaudeAgentOptions(
             model=model,
             system_prompt="You are an expert full-stack developer building a production-quality web application.",
             allowed_tools=[
                 *BUILTIN_TOOLS,
-                *PUPPETEER_TOOLS,
+                *CHROME_DEVTOOLS_TOOLS,
             ],
             mcp_servers={
-                "puppeteer": {"command": "npx", "args": ["puppeteer-mcp-server"]}
+                "chrome-devtools": {
+                    "command": "npx",
+                    "args": [
+                        "chrome-devtools-mcp@latest",
+                        "--isolated",
+                        "--headless"
+                    ]
+                }
             },
             hooks={
                 "PreToolUse": [
@@ -124,5 +146,6 @@ def create_client(project_dir: Path, model: str) -> ClaudeSDKClient:
             max_turns=1000,
             cwd=str(project_dir.resolve()),
             settings=str(settings_file.resolve()),  # Use absolute path
+            setting_sources=["project"],  # Skip user settings file
         )
     )
